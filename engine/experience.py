@@ -8,11 +8,11 @@ def outcome(component, status, enabled=False):
     code = 'BRIDGE_NOT_CONNECTED'
     action = {'autocad': '切換到 AutoCAD，依圖解用 APPLOAD 載入指定檔案，再重新檢查。',
               'rhino': '切換到 Rhino，在指令列輸入 mcpstart，再重新檢查。',
-              'inventor': '切換到 Inventor，開啟要使用的文件，再重新檢查。'}[component]
+              'inventor': '開啟 Inventor，停留在首頁即可，再重新檢查。'}[component]
     if not status.get('installed'):
         code, action = 'NOT_INSTALLED', '回到「安裝連線工具」，安裝這套軟體的元件。'
     elif not status.get('cad'):
-        code, action = 'CAD_NOT_RUNNING', '先開啟這套 CAD 與一份文件，再按「重新檢查」。'
+        code, action = 'CAD_NOT_RUNNING', ('先開啟 Inventor，停留在首頁即可，再按「重新檢查」。' if component == 'inventor' else '先開啟這套 CAD 與一份文件，再按「重新檢查」。')
     elif len(status.get('processes', [])) > 1:
         code, action = 'MULTIPLE_PROCESSES', '找到要使用的視窗。自行保存其他視窗後關閉多餘程序，再重新檢查；Toolkit 不會替你關閉。'
     elif not status.get('mcp'):
@@ -24,7 +24,10 @@ def outcome(component, status, enabled=False):
     elif status.get('bridge'):
         document = status.get('document')
         if component == 'inventor' and isinstance(document, dict): document = document.get('document')
-        if not document:
+        # A verified COM application is usable at the Inventor home screen.
+        # Missing documents remain a modeling precondition, not a setup failure.
+        inventor_home = component == 'inventor' and isinstance(status.get('document'), dict) and status['document'].get('hwnd') and status['document'].get('version')
+        if not document and not inventor_home:
             code, action = 'NO_DOCUMENT', '連線已建立。請在 CAD 開啟或新增一份文件，再重新檢查。'
         else:
             code, action = ('READY', '到 Codex 新增對話，貼上唯讀檢查指令。') if enabled else ('NOT_ENABLED', '連線已通過。按「啟用這套工具」，再到 Codex 新增對話。')

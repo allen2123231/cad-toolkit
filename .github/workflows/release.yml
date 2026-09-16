@@ -51,7 +51,9 @@ jobs:
         run: |
           $version = (Get-Content sources.json | ConvertFrom-Json).version
           if ($env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag 與來源版本不一致' }
-          $releaseArgs = @('release','create',$env:GITHUB_REF_NAME,'--title',"CAD Toolkit $version",'--notes-file','docs/validation.md')
+          $notes = "docs/release-$version.md"
+          if (!(Test-Path -LiteralPath $notes)) { $notes = 'docs/validation.md' }
+          $releaseArgs = @('release','create',$env:GITHUB_REF_NAME,'--title',"CAD Toolkit $version",'--notes-file',$notes)
           if ($version.Contains('-')) { $releaseArgs += '--prerelease' }
           $published = gh release view $env:GITHUB_REF_NAME --json isDraft --jq '.isDraft' 2>$null
           if ($LASTEXITCODE -eq 0 -and $published -eq 'false') {

@@ -14,8 +14,16 @@ def outputs():
         image = f'images/{key}-guide.svg'
         labels = ''.join(f'<rect x="24" y="{72+i*82}" width="692" height="62" rx="8" fill="white" stroke="#006967"/><text x="44" y="{109+i*82}" font-size="18">{html.escape(line)}</text>' for i, line in enumerate(g['diagram']))
         files['docs/'+image] = f'<svg xmlns="http://www.w3.org/2000/svg" width="740" height="344" viewBox="0 0 740 344"><rect width="740" height="344" fill="#ecf6f6"/><g font-family="Microsoft JhengHei, sans-serif" fill="#18313d"><text x="24" y="38" font-size="17">操作位置示意・非實際截圖</text>{labels}</g></svg>\n'
-        lines = [f"# {g['title']}", '', g['purpose'], '', '## 操作位置', '', g['location'], '', f"![{g['title']}：操作示意]({image})", '', g['version'], '', '## 只有第一次需要執行', '']
-        lines += [f'{i}. {step}' for i, step in enumerate(g['steps'], 1)]
+        lines = [f"# {g['title']}", '', g['purpose'], '', '## 操作位置', '', g['location'], '', g['version'], '']
+        if 'pages' in g:
+            if 'first_time' in g:
+                lines += ['## 只有第一次或更新外掛時', ''] + [f'{i}. {text}' for i, text in enumerate(g['first_time'], 1)] + ['']
+            lines += ['## 依序操作', '']
+            for i, step in enumerate(g['pages'], 1):
+                lines += [f"### {i}. {step['title']}", '', '操作位置：'+step['location'], '', step['text'], '', f"![{step['caption']}](images/guides/{step['image']})", '', step['caption'], '', '完成後：'+step['success'], '']
+        else:
+            lines += [f"![{g['title']}：操作示意]({image})", '', '## 只有第一次需要執行', '']
+            lines += [f'{i}. {step}' for i, step in enumerate(g['steps'], 1)]
         if g['command']: lines += ['', '可複製指令：', '', '```text', g['command'], '```']
         lines += ['', '## 完成後會看到', '', g['success'], '', '## 常見問題', ''] + ['- '+v for v in g['problems']]
         if key in data['exercises']:
@@ -67,6 +75,8 @@ Windows x64、自己的 AutoCAD／Inventor／Rhino 8 授權、網路及約 3 GB 
 
 完整乾淨 Windows、實際 CAD GUI 全流程及真人新手測試尚未完成；詳見 [驗收紀錄](validation.md)。
 '''
+    version = json.loads((ROOT / 'sources.json').read_text(encoding='utf-8'))['version']
+    files['docs/getting-started.md'] = files['docs/getting-started.md'].replace('v0.2.0-preview.1', 'v'+version).replace('七步精靈', '八步精靈').replace('6. 在「確認可以使用」', '6. 在「安裝 Plugin」按安裝，再到「確認可以使用」').replace('回第 6 步', '回「確認可以使用」').replace('Inventor 開啟正確分頁', 'Inventor 可以停留首頁；有文件時確認正確分頁').replace('切换', '切換')
     return files
 
 if __name__ == '__main__':

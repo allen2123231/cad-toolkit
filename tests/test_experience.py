@@ -12,6 +12,30 @@ from experience import outcome, Cancelled, friendly_error
 from common import atomic_json, sha256
 
 class ExperienceTests(Fixture):
+    def test_inventor_home_is_ready_only_with_verified_application_identity(self):
+        base = dict(installed=True, mcp=True, cad=True, bridge=True, processes=[{'pid': 1}], document={'document': None, 'hwnd': 123, 'version': '2027.1'})
+        self.assertEqual(outcome('inventor', base, True)['code'], 'READY')
+        self.assertEqual(outcome('inventor', base, False)['code'], 'NOT_ENABLED')
+        self.assertEqual(outcome('inventor', {**base, 'bridge': False}, True)['code'], 'BRIDGE_NOT_CONNECTED')
+        self.assertEqual(outcome('inventor', {**base, 'document': {'document': None}}, True)['code'], 'NO_DOCUMENT')
+
+    def test_separate_plugin_step_keeps_candidate_disabled(self):
+        manager = Manager(self.base/'Toolkit')
+        candidate = self.base/'new'
+        atomic_json(candidate/'ready.json', {'version': 'test'})
+        manager.state['candidate'] = {'selected': ['rhino'], 'path': str(candidate)}
+        manager.state['active'] = {'inventor': 'old'}
+        with patch.object(manager, 'register_plugin') as register:
+            manager.configure_plugin()
+        register.assert_called_once_with({'inventor': 'old'}, str(candidate), {'inventor'})
+        self.assertEqual(manager.state['active'], {'inventor': 'old'})
+
+    def test_separate_plugin_step_rejects_unprepared_candidate(self):
+        manager = Manager(self.base/'Toolkit')
+        with patch.object(manager, 'register_plugin') as register:
+            with self.assertRaises(RuntimeError): manager.configure_plugin()
+        register.assert_not_called()
+
     def test_raw_errors_stay_out_of_primary_hint(self):
         self.assertNotIn('Traceback', friendly_error(RuntimeError('Traceback\nprivate path details'))[1])
         self.assertNotIn('C:/', friendly_error(RuntimeError('指令失敗 (1): C:/private/python.exe\nraw output'))[1])

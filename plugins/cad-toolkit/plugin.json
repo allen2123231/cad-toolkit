@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "cad-toolkit",
-  "version": "0.2.0-preview.1",
+  "version": "0.2.0-preview.2",
   "description": "AutoCAD、Inventor、Rhino 整合工具與中文工作流程",
   "author": {
     "name": "allen2123231"

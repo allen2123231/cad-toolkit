@@ -115,6 +115,7 @@ public sealed class ToolkitService
         {
             start.ArgumentList.Add("--payload"); start.ArgumentList.Add(payload);
             start.ArgumentList.Add("--setup"); start.ArgumentList.Add(Environment.ProcessPath!);
+            start.ArgumentList.Add("--defer-plugin");
         }
         if (active) start.ArgumentList.Add("--active");
         start.ArgumentList.Add("--cancel-file"); start.ArgumentList.Add(CancelFile);
@@ -163,7 +164,7 @@ public sealed class ToolkitService
     public async Task CheckUpdate()
     {
         string current = release.GetProperty("version").GetString()!;
-        using var data = JsonDocument.Parse(await http.GetStringAsync("https://api.github.com/repos/allen2123231/cad-toolkit/releases?per_page=30"));
+        using var data = JsonDocument.Parse(await http.GetStringAsync("https://api.github.com/repos/allen2123231/cad-toolkit/releases?per_page=30", Token));
         var candidates = data.RootElement.EnumerateArray().Where(r => !r.GetProperty("draft").GetBoolean()
             && (current.Contains('-') || !r.GetProperty("prerelease").GetBoolean())).ToList();
         candidates = candidates.Where(r => Regex.IsMatch(r.GetProperty("tag_name").GetString()!, @"^v\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?$")).ToList();
@@ -175,7 +176,7 @@ public sealed class ToolkitService
         if (asset.ValueKind == JsonValueKind.Undefined) throw new InvalidDataException("新版尚未提供完整安裝清單。");
         string manifestUrl = asset.GetProperty("browser_download_url").GetString()!;
         if (!manifestUrl.StartsWith("https://github.com/allen2123231/cad-toolkit/releases/download/")) throw new InvalidDataException("發布來源不符");
-        using var descriptor = JsonDocument.Parse(await http.GetStringAsync(manifestUrl));
+        using var descriptor = JsonDocument.Parse(await http.GetStringAsync(manifestUrl, Token));
         if ("v" + descriptor.RootElement.GetProperty("version").GetString() != latest.GetProperty("tag_name").GetString()) throw new InvalidDataException("版本清單不一致");
         update = descriptor.RootElement.Clone();
         Log("新版可用：" + update.Value.GetProperty("version").GetString() + "。按「一鍵更新」下載並安裝；現有版本會保留。\n" + latest.GetProperty("html_url").GetString());

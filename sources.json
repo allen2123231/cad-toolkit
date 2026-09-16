@@ -1,10 +1,31 @@
 {
-  "version": "0.2.0-preview.1",
+  "version": "0.2.0-preview.2",
   "python": "3.12.11",
   "uv": "0.8.17",
   "components": {
-    "autocad": {"repo": "allen2123231/autocad-mcp", "commit": "6759a5054c60f1a36c2ed4bc13268395248f6a43", "subdir": ".", "package": "autocad-mcp", "module": "autocad_mcp", "process": "acad.exe"},
-    "inventor": {"repo": "allen2123231/inventor-mcp", "commit": "94c1aa0d49985d560ce505a76fe6851ee120c83a", "subdir": ".", "package": "inventor-mcp-server", "module": "src.server", "process": "Inventor.exe"},
-    "rhino": {"repo": "allen2123231/rhinomcp", "commit": "48ab20ca3174065a2c713d34d9818f012deef47a", "subdir": "server", "package": "rhinomcp", "entrypoint": "rhinomcp.exe", "process": "Rhino.exe"}
+    "autocad": {
+      "repo": "allen2123231/autocad-mcp",
+      "commit": "6759a5054c60f1a36c2ed4bc13268395248f6a43",
+      "subdir": ".",
+      "package": "autocad-mcp",
+      "module": "autocad_mcp",
+      "process": "acad.exe"
+    },
+    "inventor": {
+      "repo": "allen2123231/inventor-mcp",
+      "commit": "94c1aa0d49985d560ce505a76fe6851ee120c83a",
+      "subdir": ".",
+      "package": "inventor-mcp-server",
+      "module": "src.server",
+      "process": "Inventor.exe"
+    },
+    "rhino": {
+      "repo": "allen2123231/rhinomcp",
+      "commit": "48ab20ca3174065a2c713d34d9818f012deef47a",
+      "subdir": "server",
+      "package": "rhinomcp",
+      "entrypoint": "rhinomcp.exe",
+      "process": "Rhino.exe"
+    }
   }
 }

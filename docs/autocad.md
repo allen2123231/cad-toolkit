@@ -1,23 +1,51 @@
 # 讓 AutoCAD 接受連線
 
-將連線檔載入 AutoCAD，讓 AI 助手讀取目前圖面。只有首次或更換 Toolkit 版本需要選取檔案。
+將 Toolkit 的連線檔載入 AutoCAD。每次重新開啟 AutoCAD 請確認已載入；更新時使用新版本的檔案。
 
 ## 操作位置
 
 AutoCAD 視窗下方的指令列；若看不到，可按 Ctrl+9 顯示。
 
-![讓 AutoCAD 接受連線：操作示意](images/autocad-guide.svg)
-
 以 AutoCAD 2026 操作位置設計；本版完整 GUI 載入流程待實機驗收。其他版本未驗證。
 
-## 只有第一次需要執行
+## 依序操作
 
-1. 開啟 AutoCAD 與要使用的圖面。先完成目前進行中的繪圖指令，停留在一般命令提示。
-2. 按下方「開啟檔案位置」。這裡是目前準備安裝的版本，選取其中的 mcp_dispatch.lsp；不要改用其他版本的同名檔案。
-3. 按「複製指令」，切換到 AutoCAD 下方指令列，貼上 APPLOAD 並按 Enter。
-4. 在載入應用程式對話框瀏覽到上一步的資料夾，選取 mcp_dispatch.lsp，按「載入」。若看不到資料夾，可用下方「複製完整路徑」。
-5. 如出現可信任位置提示，核對路徑確實是 Toolkit 提供的檔案。可在 OPTIONS → 檔案 → 可信任的位置加入這個確切資料夾後重試；不要將整個磁碟設成可信任。
-6. 確認 AutoCAD 沒有載入錯誤，再回到這裡按「檢查這一步」。通過後到「確認可以使用」啟用 AutoCAD。
+### 1. 在指令列輸入 APPLOAD
+
+操作位置：AutoCAD 視窗下方的指令列
+
+開啟 AutoCAD 與要使用的圖面，完成目前指令。點下方指令輸入區，輸入 APPLOAD，再按 Enter。
+
+![AutoCAD 2026 真實指令列；原始像素，未重繪。](images/guides/autocad-command.png)
+
+AutoCAD 2026 真實指令列；原始像素，未重繪。
+
+完成後：出現「載入／卸載應用程式」視窗，再進入下一步。
+
+### 2. 選取檔案並載入
+
+操作位置：載入／卸載應用程式對話框
+
+按 Toolkit 的「開啟檔案位置」或「複製完整路徑」，找到目前版本的 mcp_dispatch.lsp。先選取檔案，再按「載入」。如出現信任提示，核對這個確切資料夾；不要將整個磁碟設為可信任。
+
+![AutoCAD 2026 真實對話框。① 選取 mcp_dispatch　② 按「載入」。](images/guides/autocad-appload.png)
+
+AutoCAD 2026 真實對話框。① 選取 mcp_dispatch　② 按「載入」。
+
+完成後：訊息區顯示檔案載入成功，接著查看下一步。
+
+### 3. 確認載入結果
+
+操作位置：AutoCAD 下方指令列訊息區
+
+對照下方訊息「mcp_dispatch.lsp 成功載入」。保持 AutoCAD 開啟，回 Toolkit 按「檢查這一步」。
+
+![使用者提供的 AutoCAD 成功訊息原圖。](images/guides/autocad-success.png)
+
+使用者提供的 AutoCAD 成功訊息原圖。
+
+完成後：載入訊息只是第一項確認；Toolkit 必須讀到 file_ipc 與目前圖面，才算連線通過。
+
 
 可複製指令：
 

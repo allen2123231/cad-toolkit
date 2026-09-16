@@ -42,21 +42,24 @@ try:
                             marker.write_text('stop');fired[0]=True
                     lifecycle.emit=cancelling
                     try:
-                        try:service.install(payload,list(selected))
+                        try:service.install(payload,list(selected),defer_plugin=True)
                         except Cancelled:pass
                         assert fired[0], 'Cancellation boundary was not exercised'
                     finally:lifecycle.emit=emit;marker.unlink(missing_ok=True)
-                service.install(payload,list(selected))
+                service.install(payload,list(selected),defer_plugin=True)
+                # The GUI defers Plugin setup until the CAD guide page is complete.
+                # Existing active mappings must remain untouched before explicit registration.
+                service.configure_plugin()
                 target=Path(service.state['candidate']['path'])
                 first_markers={c:sha256(target/(c+'.complete.json')) for c in selected}
-                service.install(payload,list(selected))
+                service.install(payload,list(selected),defer_plugin=True)
                 assert all(sha256(target/(c+'.complete.json'))==value for c,value in first_markers.items()), 'Repeated installation rebuilt completed environment'
             assert service.state['active']=={}, 'Installation activated a CAD connection'
             config=service.config.load()
             policy=config['plugins']['cad-toolkit@cad-toolkit-local']['mcp_servers']
             assert not any(p['enabled'] for p in policy.values())
             assert read_json(target/'ready.json')['selected']==list(selected)
-            results.append({'selected':selected,'passed':True,'repeated_install':True,'tools':{c:read_json(target/(c+'.complete.json'))['tools'] for c in selected}})
+            results.append({'selected':selected,'passed':True,'separate_plugin_step':True,'repeated_install':True,'tools':{c:read_json(target/(c+'.complete.json'))['tools'] for c in selected}})
             print('PASS '+','.join(selected),flush=True)
 finally:
     if original_home is None:os.environ.pop('CODEX_HOME',None)

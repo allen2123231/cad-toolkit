@@ -6,17 +6,26 @@ namespace CadToolkit;
 
 public sealed class ExperienceState
 {
-    public int Schema { get; set; } = 1;
+    public int Schema { get; set; } = 2;
     public int Step { get; set; }
     public bool Completed { get; set; }
     public string[] Selected { get; set; } = ["autocad", "inventor", "rhino"];
     public Dictionary<string, string> Paths { get; set; } = new();
+    public Dictionary<string, int> GuideSteps { get; set; } = new();
+    public bool AiReady { get; set; }
+    public bool ReadonlyAcknowledged { get; set; }
+    public string LastOperation { get; set; } = "";
+    public bool Interrupted { get; set; }
     public static ExperienceState Load(string root) {
         try {
             var path = Path.Combine(root, "ui-state.json");
             if(File.Exists(path)) {
                 var value = JsonSerializer.Deserialize<ExperienceState>(File.ReadAllText(path)) ?? new();
-                value.Step = Math.Clamp(value.Step, 0, 6);
+                using var json = JsonDocument.Parse(File.ReadAllText(path));
+                int schema = json.RootElement.TryGetProperty("Schema", out var schemaValue) ? schemaValue.GetInt32() : 1;
+                if(schema < 2 && value.Step >= 5) value.Step++;
+                value.Schema = 2;
+                value.Step = Math.Clamp(value.Step, 0, 7);
                 value.Selected = value.Selected.Where(Names.ContainsKey).Distinct().ToArray();
                 if(value.Selected.Length == 0) value.Selected = Names.Keys.ToArray();
                 return value;

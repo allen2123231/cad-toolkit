@@ -40,6 +40,12 @@ class UiChecks
                 File.WriteAllText(Path.Combine(root,"state.json"),"{\"schema\":1,\"active\":{},\"candidate\":{\"path\":\"old\",\"selected\":[\"inventor\"],\"version\":\"0.1.0-preview.1\"}}");
                 var legacy=ExperienceState.Load(root);Assert(legacy.Step==4&&!legacy.Completed&&legacy.Selected.SequenceEqual(new[]{"inventor"}),"Legacy candidate migration");
                 var original=File.ReadAllText(Path.Combine(root,"state.json"));legacy.Save(root);Assert(File.ReadAllText(Path.Combine(root,"state.json"))==original,"Preserve engine state");
+                File.WriteAllText(Path.Combine(root,"ui-state.json"),"{\"Schema\":1,\"Step\":5,\"Selected\":[\"inventor\"]}");
+                Assert(ExperienceState.Load(root).Step==6,"Legacy diagnostics step migrates past Plugin page");
+                File.WriteAllText(Path.Combine(root,"ui-state.json"),"{\"Schema\":1,\"Step\":6,\"Selected\":[\"rhino\"]}");
+                Assert(ExperienceState.Load(root).Step==7,"Legacy practice step migrates");
+                var resume=new ExperienceState{Step=4,Interrupted=true,LastOperation="install",GuideSteps=new(){{"rhino",1}}};resume.Save(root);
+                Assert(ExperienceState.Load(root).Interrupted&&ExperienceState.Load(root).GuideSteps["rhino"]==1,"Interrupted operation and guide page persist");
                 var transport=new Transport();var service=new ToolkitService(root,new HttpClient(transport));
                 var download=Path.Combine(root,"download.bin");File.WriteAllText(download,"old");
                 string url="https://github.com/allen2123231/cad-toolkit/releases/download/v0.2.0-preview.1/test.bin";
@@ -66,16 +72,21 @@ class UiChecks
                     Assert(await offline.Payload()==extracted,"Completed extraction reused");
                 }
                 var screens=new List<object>();
-                foreach(var dpi in new[]{96,144,192})foreach(var page in new[]{"0","1","2","3","4","5","6","home","guides","settings"}){
-                    var size=dpi==96?"1060x820":"640x540";
+                var imageLoader=typeof(SetupWindow).GetMethod("GuideImage",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!;
+                foreach(var name in new[]{"autocad-command.png","autocad-appload.png","autocad-success.png","inventor-home.png","rhino-input.png","rhino-result.png"}){
+                    var image=(System.Windows.Media.Imaging.BitmapSource)imageLoader.Invoke(null,new object[]{name})!;
+                    Assert(image.PixelWidth>0&&image.PixelHeight>0,"Offline screenshot embedded "+name);
+                }
+                foreach(var dpi in new[]{96,144,192})foreach(var page in new[]{"0","1","2","3","4","5","6","7","home","guides","settings","updates","restore","uninstall","help","complete"}){
+                    var size=dpi==96?"1180x820":"640x540";
                     var png=Path.Combine(output,$"{page}-{dpi}.png");
                     var window=new SetupWindow(new[]{"--root="+Path.Combine(output,"empty"),"--page="+page,"--size="+size,"--dpi="+dpi,"--render-preview="+png});
                     window.ShowActivated=false;var closed=new TaskCompletionSource();window.Closed+=(_,_)=>closed.SetResult();window.Show();window.UpdateLayout();
                     var buttons=Descendants<Button>(window).Where(b=>b.IsEnabled&&b.IsVisible).ToArray();Assert(buttons.Length>=3,"Navigation available "+page);
-                    var footer=Descendants<WrapPanel>(window).Last();
+                    var footer=(WrapPanel)typeof(SetupWindow).GetField("footer",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(window)!;
                     // Primary wizard actions live outside the scrolling content.
                     if(int.TryParse(page,out _)){
-                        var main=Descendants<Button>(footer).FirstOrDefault(b=>b.Background is SolidColorBrush brush&&brush.Color.G==105);
+                        var main=Descendants<Button>(footer).FirstOrDefault(b=>b.Background is SolidColorBrush brush&&brush.Color.R==9&&brush.Color.G==108);
                         if(main!=null){var bounds=main.TransformToAncestor(window).TransformBounds(new Rect(0,0,main.ActualWidth,main.ActualHeight));Assert(bounds.Right<=window.ActualWidth&&bounds.Bottom<=window.ActualHeight,"Primary action is clipped "+page+" "+dpi);}
                     }
                     Assert(buttons.All(b=>b.Focusable),"Buttons support keyboard focus");

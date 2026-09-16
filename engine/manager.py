@@ -155,7 +155,7 @@ class Manager:
         emit("環境檢查完成；現有設定尚未切換", result=result)
         return result
 
-    def install(self, payload, selected, setup=None):
+    def install(self, payload, selected, setup=None, defer_plugin=False):
         payload = Path(payload).resolve()
         manifest = read_json(payload / "bundle.json")
         version = manifest["version"]
@@ -221,9 +221,19 @@ class Manager:
         emit("正在完成 Plugin 設定，請等候完成；這個階段不能中斷。", step="configure", cancellable=False)
         if setup: self.register_windows(Path(setup))
         # Install the Plugin with new servers disabled; existing CAD MCPs keep running.
-        self.register_plugin(self.state["active"], str(target), set(self.state["active"]))
+        if not defer_plugin:
+            self.register_plugin(self.state["active"], str(target), set(self.state["active"]))
         emit("元件安裝完成。請完成 CAD 端設定並診斷，通過後再切換 Plugin。", candidate=self.state["candidate"],
              autocad_lisp=str(target / "autocad/mcp_dispatch.lsp"), rhino_plugin=str(target / "payload/cad/rhino/rhinomcp.rhp"))
+
+    def configure_plugin(self):
+        candidate = self.state.get('candidate')
+        if not candidate or not (Path(candidate['path']) / 'ready.json').exists():
+            raise RuntimeError('請先完成連線工具安裝。')
+        self.checkpoint()
+        emit('正在安裝 Plugin，完成前請勿關閉。', step='configure', cancellable=False)
+        self.register_plugin(self.state['active'], candidate['path'], set(self.state['active']))
+        emit('Plugin 已安裝。新元件保持停用，請先逐套檢查連線。', step='plugin', outcome='completed')
 
     def register_windows(self, setup):
         if os.name != "nt": return
@@ -330,6 +340,7 @@ class Manager:
         run([cli, "plugin", "marketplace", "add", str(marketplace)], timeout=60)
         run([cli, "plugin", "add", "cad-toolkit@cad-toolkit-local"], timeout=90)
         self.state["plugin_registered"] = True
+        self.state["plugin_candidate_path"] = candidate['path'] if candidate else template_target
         self.save()
 
     def activate(self, selected):
@@ -394,11 +405,12 @@ class Manager:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["preflight", "install", "diagnose", "activate", "rollback", "uninstall"])
+    parser.add_argument("action", choices=["preflight", "install", "configure_plugin", "diagnose", "activate", "rollback", "uninstall"])
     parser.add_argument("--root", default=str(Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "CadToolkit"))
     parser.add_argument("--components", default="autocad,inventor,rhino")
     parser.add_argument("--payload")
     parser.add_argument("--setup")
+    parser.add_argument("--defer-plugin", action="store_true", help="Prepare components; register Plugin in a separate step")
     parser.add_argument("--active", action="store_true")
     parser.add_argument("--cancel-file")
     args = parser.parse_args()
@@ -411,7 +423,7 @@ def main():
                 marker = Path(args.cancel_file).resolve()
                 if marker.parent != manager.root: raise ValueError('取消標記必須位於安裝目錄')
                 manager.cancel_file = marker
-            if args.action == "install": manager.install(args.payload, selected, args.setup)
+            if args.action == "install": manager.install(args.payload, selected, args.setup, args.defer_plugin)
             elif args.action == "diagnose": manager.diagnose(selected, args.active)
             elif args.action == "activate": manager.activate(selected)
             else: getattr(manager, args.action)()

@@ -14,5 +14,5 @@
     <PublishTrimmed>false</PublishTrimmed>
     <DebugType>none</DebugType>
   </PropertyGroup>
-  <ItemGroup><EmbeddedResource Include="release.json" /><EmbeddedResource Include="../content/guides.json" LogicalName="CadToolkitSetup.guides.json" /></ItemGroup>
+  <ItemGroup><EmbeddedResource Include="release.json" /><EmbeddedResource Include="../content/guides.json" LogicalName="CadToolkitSetup.guides.json" /><EmbeddedResource Include="../docs/images/guides/*.png" LogicalName="CadToolkitSetup.images.%(Filename)%(Extension)" /></ItemGroup>
 </Project>

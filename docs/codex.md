@@ -6,9 +6,9 @@
 
 Windows 開始功能表 → ChatGPT 或 Codex 桌面應用程式
 
-![準備你的 AI 助手：操作示意](images/codex-guide.svg)
-
 官方入門文件核對：2026-09-16。名稱與入口依桌面版本而異。
+
+![準備你的 AI 助手：操作示意](images/codex-guide.svg)
 
 ## 只有第一次需要執行
 
