@@ -1,6 +1,6 @@
 {
   "name": "cad-toolkit",
-  "version": "0.1.0-preview.1",
+  "version": "0.2.0-preview.1",
   "description": "AutoCAD、Inventor、Rhino 整合工具與中文工作流程",
   "author": {
     "name": "allen2123231"

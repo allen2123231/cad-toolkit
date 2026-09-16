@@ -10,6 +10,10 @@ payload = ROOT / ".build/payload"
 for folder in ("engine", "plugins", "docs"):
     shutil.copytree(ROOT / folder, payload / folder, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__"))
 manifest = read_json(payload / "bundle.json")
+sources = read_json(ROOT / "sources.json")
+assert all(manifest['components'][c]['commit'] == spec['commit'] for c, spec in sources['components'].items()), 'Changed MCP sources require build_payload.py'
+assert manifest['python'] == sources['python'] and manifest['uv'] == sources['uv'], 'Changed runtime requires build_payload.py'
+manifest['version'] = sources['version']
 manifest["files"] = {p.relative_to(payload).as_posix(): sha256(p) for p in sorted(payload.rglob("*"))
                      if p.is_file() and p.name != "bundle.json" and "__pycache__" not in p.parts}
 atomic_json(payload / "bundle.json", manifest)
@@ -18,6 +22,8 @@ with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
     for p in sorted(payload.rglob("*")):
         if p.is_file() and "__pycache__" not in p.parts: z.write(p, p.relative_to(payload))
 release = read_json(ROOT / "installer/release.json")
+release['version'] = sources['version']
+release['payload']['url'] = f"https://github.com/allen2123231/cad-toolkit/releases/download/v{sources['version']}/cad-toolkit-payload.zip"
 release["payload"].update(sha256=sha256(archive), size=archive.stat().st_size)
 atomic_json(ROOT / "installer/release.json", release)
 print("Repacked " + str(archive))

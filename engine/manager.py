@@ -13,11 +13,14 @@ import traceback
 sys.path.insert(0, str(Path(__file__).parent / "vendor"))
 from common import COMPONENTS, SKILLS, atomic_json, extract_zip, install_lock, read_json, run, sha256, within
 from probe import Client
+from experience import Cancelled, friendly_error, outcome
 
 def emit(message, **values):
     # ASCII JSON transport works even on Windows consoles configured for CP1252.
     # The GUI decodes Unicode escapes before displaying Traditional Chinese.
-    print(json.dumps({"message": message, **values}, ensure_ascii=True), flush=True)
+    print(json.dumps({"schema": 2, "step": "operation", "component": None, "outcome": "progress",
+                      "progress": None, "error_code": None, "next_action": None,
+                      "message": message, **values}, ensure_ascii=True), flush=True)
 
 def utc(): return dt.datetime.now(dt.timezone.utc).isoformat()
 
@@ -135,6 +138,10 @@ class Manager:
         self.state = read_json(self.state_path) if self.state_path.exists() else {
             "schema": 1, "active": {}, "candidate": None, "previous": None, "originals": {}}
         self.config = ConfigEditor(codex_home(), self.root / "backups")
+        self.cancel_file = None
+
+    def checkpoint(self):
+        if self.cancel_file and self.cancel_file.exists(): raise Cancelled()
 
     def save(self): atomic_json(self.state_path, self.state)
 
@@ -154,24 +161,32 @@ class Manager:
         version = manifest["version"]
         if not re.fullmatch(r"[0-9A-Za-z.+-]+", version): raise ValueError("版本格式錯誤")
         for relative, expected in manifest["files"].items():
+            self.checkpoint()
             if sha256(within(payload, relative)) != expected: raise ValueError(f"安裝來源損毀：{relative}")
         # Environments use their final absolute paths; relocating a venv breaks console launchers.
         key = version + "-" + "-".join(sorted(selected)) + "-" + sha256(payload / "bundle.json")[:12]
         target = within(self.root, "versions/" + key)
-        if target.exists() and not (target / "ready.json").exists():
-            if str(target) in self.state["active"].values(): raise RuntimeError("不能覆寫正在使用的版本")
-            shutil.rmtree(target)
+        if target.exists() and not (target / "ready.json").exists() and str(target) in self.state["active"].values():
+            raise RuntimeError("不能覆寫正在使用的版本")
         if not (target / "ready.json").exists():
             target.mkdir(parents=True, exist_ok=True)
+            emit("正在準備固定版本檔案；完成後可安全停止。", step="prepare")
             shutil.copytree(payload, target / "payload", dirs_exist_ok=True)
+            self.checkpoint()
             runtime = target / "payload/runtime/python.exe"
             uv = target / "payload/uv.exe"
             env = os.environ.copy()
             env.update(UV_NO_MANAGED_PYTHON="1", UV_PYTHON_DOWNLOADS="never", PYTHONUTF8="1")
-            for c in selected:
-                emit(f"建立 {c} 獨立 Python 環境")
+            for index, c in enumerate(selected):
+                self.checkpoint()
+                marker = target / (c + ".complete.json")
+                if marker.exists() and (target / "envs" / c / "Scripts/python.exe").exists():
+                    emit(f"{c} 已完成，接續下一項。", step="install", component=c, outcome="completed", progress=100*(index+1)/len(selected))
+                    continue
+                emit(f"正在安裝 {c}；請稍候。", step="install", component=c, progress=100*index/len(selected))
                 venv = target / "envs" / c
-                run([uv, "venv", "--python", runtime, venv], env=env)
+                run([uv, "venv", "--clear", "--python", runtime, venv], env=env)
+                self.checkpoint()
                 run([uv, "pip", "install", "--python", venv / "Scripts/python.exe", "--offline", "--no-index",
                      "--find-links", target / "payload/wheels" / c, "--require-hashes", "-r",
                      target / "payload/locks" / (c + ".txt")], env=env)
@@ -185,8 +200,10 @@ class Manager:
                     client.initialize()
                     count = len(client.request("tools/list").get("tools", []))
                     if not count: raise RuntimeError(f"{c} 沒有提供工具")
-                emit(f"{c} MCP 啟動通過：{count} 個工具（尚未驗證 CAD 連線）")
+                atomic_json(marker, {"tools": count, "at": utc()})
+                emit(f"{c} 安裝完成，接下來需要在 CAD 內設定。", step="install", component=c, outcome="completed", progress=100*(index+1)/len(selected))
             atomic_json(target / "ready.json", {"version": version, "selected": selected, "installed_at": utc()})
+        self.checkpoint()
         self.root.joinpath("ipc").mkdir(exist_ok=True)
         lisp = target / "payload/cad/autocad/mcp_dispatch.lsp"
         if "autocad" in selected:
@@ -200,6 +217,8 @@ class Manager:
             shutil.copytree(cad_dir, target / "envs/autocad/Lib/lisp-code", dirs_exist_ok=True)
         self.state["candidate"] = {"path": str(target), "selected": selected, "version": version}
         self.save()
+        # Cancellation is deferred during the configuration transaction.
+        emit("正在完成 Plugin 設定，請等候完成；這個階段不能中斷。", step="configure", cancellable=False)
         if setup: self.register_windows(Path(setup))
         # Install the Plugin with new servers disabled; existing CAD MCPs keep running.
         self.register_plugin(self.state["active"], str(target), set(self.state["active"]))
@@ -229,7 +248,10 @@ class Manager:
             status = {"installed": False, "mcp": False, "cad": False, "bridge": False, "document": None}
             result[c] = status
             if not target or not (Path(target) / "envs" / c).exists():
-                status["message"] = "尚未安裝"; continue
+                status["message"] = "尚未安裝"
+                status.update(outcome(c, status))
+                emit(f"{c}：尚未安裝", step="diagnose", component=c, result=status, outcome="needs_action", error_code=status['code'], next_action=status['next_action'])
+                continue
             status["installed"] = True
             proc = processes({"autocad": "acad.exe", "inventor": "Inventor.exe", "rhino": "Rhino.exe"}[c])
             status["cad"] = bool(proc)
@@ -273,7 +295,13 @@ class Manager:
                     status["bridge"] = True
                     status["message"] = "連線成功（唯讀檢查）"
             except Exception as e: status["message"] = str(e)
-            finally: emit(f"{c}：{status.get('message', '檢查完成')}", component=c, result=status)
+            finally:
+                enabled = self.state['active'].get(c) == target and self.state.get('plugin_registered', False)
+                policy = self.config.load().get('plugins', {}).get('cad-toolkit@cad-toolkit-local', {})
+                enabled = enabled and policy.get('enabled', True) and policy.get('mcp_servers', {}).get(c, {}).get('enabled', False)
+                status.update(outcome(c, status, enabled))
+                emit(f"{c}：{status.get('message', '檢查完成')}", step="diagnose", component=c, result=status,
+                     outcome="completed" if status['ready'] else "needs_action", error_code=None if status['ready'] else status['code'], next_action=status['next_action'])
         report = {"at": utc(), "candidate": candidate, "results": result}
         atomic_json(self.root / "diagnostics.json", report)
         return result
@@ -305,12 +333,15 @@ class Manager:
         if not candidate or not set(selected).issubset(candidate["selected"]): raise RuntimeError("請先安裝所選元件")
         checks = self.diagnose(selected)
         failed = [c for c in selected if not checks[c]["bridge"]]
+        failed += [c for c in selected if checks[c].get('code') == 'NO_DOCUMENT' and c not in failed]
         if failed: raise RuntimeError("以下元件尚未通過 CAD 連線驗證，保留現有設定：" + ", ".join(failed))
+        self.checkpoint()
         previous = dict(self.state["active"])
         desired = {**previous, **{c: candidate["path"] for c in selected}}
         self.state["previous"] = previous
         self.save()
         try:
+            emit("正在切換這套工具的設定；完成前請勿關閉。", step="configure", cancellable=False)
             self.register_plugin(desired, candidate["path"], set(desired))
             self.state["active"] = desired
             self.save()
@@ -327,6 +358,8 @@ class Manager:
         # Rhino registrations are external; never switch a loaded plugin silently.
         if self.state["active"].get("rhino") != previous.get("rhino") and processes("Rhino.exe"):
             raise RuntimeError("請先自行儲存工作並關閉 Rhino，再還原及重新註冊對應外掛")
+        self.checkpoint()
+        emit("正在還原設定，請等候完成。", step="configure", cancellable=False)
         self.config.restore_originals(self.state["originals"])
         self.config.set_policy(set(previous), self.state["originals"])
         if previous: self.register_plugin(previous, next(iter(previous.values())), set(previous))
@@ -337,6 +370,8 @@ class Manager:
     def uninstall(self):
         if processes("Rhino.exe") and "rhino" in self.state["active"]:
             raise RuntimeError("請先自行儲存工作並關閉 Rhino，再解除安裝")
+        self.checkpoint()
+        emit("正在移除 Toolkit 設定並還原舊設定，請等候完成。", step="configure", cancellable=False)
         self.config.set_policy(set(), self.state["originals"])
         if self.state.get("plugin_registered"):
             cli = find_codex()
@@ -361,18 +396,24 @@ def main():
     parser.add_argument("--payload")
     parser.add_argument("--setup")
     parser.add_argument("--active", action="store_true")
+    parser.add_argument("--cancel-file")
     args = parser.parse_args()
     selected = list(dict.fromkeys(args.components.split(",")))
     if not selected or not set(selected).issubset(COMPONENTS): parser.error("請選擇有效的 CAD 元件")
     try:
         with install_lock(args.root):
             manager = Manager(args.root)
+            if args.cancel_file:
+                marker = Path(args.cancel_file).resolve()
+                if marker.parent != manager.root: raise ValueError('取消標記必須位於安裝目錄')
+                manager.cancel_file = marker
             if args.action == "install": manager.install(args.payload, selected, args.setup)
             elif args.action == "diagnose": manager.diagnose(selected, args.active)
             elif args.action == "activate": manager.activate(selected)
             else: getattr(manager, args.action)()
     except Exception as e:
-        emit(str(e), error=True)
+        code, message = friendly_error(e)
+        emit(message, error=True, outcome="cancelled" if code == 'CANCELLED' else "failed", error_code=code, details=str(e))
         return 1
     return 0
 
