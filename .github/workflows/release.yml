@@ -53,4 +53,9 @@ jobs:
           if ($env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag 與來源版本不一致' }
           $releaseArgs = @('release','create',$env:GITHUB_REF_NAME,'--title',"CAD Toolkit $version",'--notes-file','docs/validation.md')
           if ($version.Contains('-')) { $releaseArgs += '--prerelease' }
+          $published = gh release view $env:GITHUB_REF_NAME --json isDraft --jq '.isDraft' 2>$null
+          if ($LASTEXITCODE -eq 0 -and $published -eq 'false') {
+            Write-Output '此版本已發布，保留已驗證的下載檔案。'
+            exit 0
+          }
           gh @releaseArgs dist/CadToolkitSetup.exe dist/cad-toolkit-payload.zip dist/release-manifest.json dist/SHA256SUMS.txt
