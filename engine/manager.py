@@ -270,6 +270,10 @@ class Manager:
                         helper = Path(__file__).with_name("autocad_readonly.py")
                         python = Path(target) / "envs/autocad/Scripts/python.exe"
                         before = json.loads(run([python, helper], timeout=20))
+                        if before.get('document_missing'):
+                            status['document_missing'] = True
+                            status['message'] = 'AutoCAD 尚未開啟圖面'
+                            continue
                         if before["cmdactive"] != 0: raise RuntimeError("AutoCAD 有進行中的指令，請完成後再診斷")
                         info = client.call("system", {"operation": "status"})
                         status["backend_status"] = info

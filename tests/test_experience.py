@@ -12,6 +12,10 @@ from experience import outcome, Cancelled, friendly_error
 from common import atomic_json, sha256
 
 class ExperienceTests(Fixture):
+    def test_raw_errors_stay_out_of_primary_hint(self):
+        self.assertNotIn('Traceback', friendly_error(RuntimeError('Traceback\nprivate path details'))[1])
+        self.assertNotIn('C:/', friendly_error(RuntimeError('指令失敗 (1): C:/private/python.exe\nraw output'))[1])
+
     def test_all_readiness_stages(self):
         base=dict(installed=True,mcp=True,cad=True,bridge=True,document={'name':'練習'},processes=[{'pid':1}])
         for c in ('autocad','inventor','rhino'):
@@ -23,6 +27,7 @@ class ExperienceTests(Fixture):
                 result=outcome(c,{**value,**change},True)
                 self.assertEqual(result['code'],code);self.assertFalse(result['ready']);self.assertTrue(result['next_action'])
         self.assertEqual(outcome('inventor',{**base,'document':{'document':None}},True)['code'],'NO_DOCUMENT')
+        self.assertEqual(outcome('autocad',{**base,'bridge':False,'document_missing':True},True)['code'],'NO_DOCUMENT')
 
     def test_missing_component_emits_event_and_preserves_old_state(self):
         manager=Manager(self.base/'Toolkit')

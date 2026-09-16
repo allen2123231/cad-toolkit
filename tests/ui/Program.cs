@@ -53,6 +53,18 @@ class UiChecks
                 Assert(File.ReadAllText(download)=="old"&&!Directory.EnumerateFiles(root,"*.part").Any(),"Cancellation preserves file");service.Token=default;
                 await service.Download(url,download,Convert.ToHexString(SHA256.HashData(new byte[]{1,2,3})));
                 Assert(File.ReadAllBytes(download).SequenceEqual(new byte[]{1,2,3}),"Retry succeeds with verified bytes");
+                if(args.Contains("--payload")){
+                    File.Copy(Path.GetFullPath("dist/cad-toolkit-payload.zip"),Path.Combine(AppContext.BaseDirectory,"cad-toolkit-payload.zip"),true);
+                    var offline=new ToolkitService(Path.Combine(root,"離線 解壓"),new HttpClient(new Transport{Fail=true}));
+                    var extracted=await offline.Payload();
+                    using var bundle=JsonDocument.Parse(File.ReadAllText(Path.Combine(extracted,"bundle.json")));
+                    Assert(bundle.RootElement.GetProperty("version").GetString()==offline.Version,"Embedded release matches offline bundle");
+                    foreach(var file in bundle.RootElement.GetProperty("files").EnumerateObject()){
+                        using var input=File.OpenRead(Path.Combine(extracted,file.Name));
+                        Assert(Convert.ToHexString(SHA256.HashData(input)).Equals(file.Value.GetString(),StringComparison.OrdinalIgnoreCase),"Extracted checksum "+file.Name);
+                    }
+                    Assert(await offline.Payload()==extracted,"Completed extraction reused");
+                }
                 var screens=new List<object>();
                 foreach(var dpi in new[]{96,144,192})foreach(var page in new[]{"0","1","2","3","4","5","6","home","guides","settings"}){
                     var size=dpi==96?"1060x820":"640x540";

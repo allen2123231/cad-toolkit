@@ -128,7 +128,8 @@ public sealed partial class SetupWindow : Window
         System.Net.Http.HttpRequestException=>"下載失敗。請確認網路後重試，或把同版本套件放在安裝程式旁。原有版本已保留。",
         IOException io when (io.HResult&0xffff)==112=>"磁碟空間不足。請釋放至少 3 GB 空間後重試。",
         InvalidDataException=>"下載檔案未通過驗證。請重新下載同一版本的安裝程式與套件。",
-        _=>"需要處理："+ex.Message };
+        InvalidOperationException=>"需要處理："+ex.Message,
+        _=>"作業未完成。請再次嘗試；若仍失敗，展開詳細資料查看技術原因。" };
     static void Open(string path)=>Process.Start(new ProcessStartInfo(path){UseShellExecute=true});
     Task Go(int step){state.Step=step;page="wizard";Save();Render();return Task.CompletedTask;}
     void Render(){
