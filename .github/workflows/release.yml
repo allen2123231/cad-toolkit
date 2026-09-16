@@ -1,0 +1,50 @@
+name: 建置與發布 Windows 預覽版
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: 產生 Plugin 與測試
+        run: |
+          python -m pip install tomlkit==0.13.3
+          python scripts/create_content.py
+          python -m unittest discover -s tests -v
+      - name: 建置完整安裝包
+        run: |
+          python scripts/build_payload.py
+          dotnet publish installer/CadToolkitSetup.csproj -c Release -o dist/setup
+          python scripts/finalize_release.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cad-toolkit-windows
+          path: |
+            dist/CadToolkitSetup.exe
+            dist/cad-toolkit-payload.zip
+            dist/release-manifest.json
+            dist/SHA256SUMS.txt
+      - name: 發布 Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $version = (Get-Content sources.json | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag 與來源版本不一致' }
+          $releaseArgs = @('release','create',$env:GITHUB_REF_NAME,'--title',"CAD Toolkit $version",'--notes-file','docs/validation.md')
+          if ($version.Contains('-')) { $releaseArgs += '--prerelease' }
+          gh @releaseArgs dist/CadToolkitSetup.exe dist/cad-toolkit-payload.zip dist/release-manifest.json dist/SHA256SUMS.txt

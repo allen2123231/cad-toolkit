@@ -1,0 +1,28 @@
+{
+  "name": "cad-toolkit",
+  "version": "0.1.0-preview.1",
+  "description": "AutoCAD、Inventor、Rhino 整合工具與中文工作流程",
+  "author": {
+    "name": "allen2123231"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/allen2123231/cad-toolkit",
+  "interface": {
+    "displayName": "CAD Toolkit",
+    "shortDescription": "AutoCAD、Inventor、Rhino 整合工具與中文工作流程",
+    "longDescription": "搭配 Windows 安裝程式管理三套 CAD MCP、獨立執行環境及六套中文 Skills。",
+    "developerName": "allen2123231",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/allen2123231/cad-toolkit",
+    "defaultPrompt": [
+      "檢查我的 CAD 連線與目前文件",
+      "協助我使用 CAD 工具完成建模"
+    ]
+  },
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

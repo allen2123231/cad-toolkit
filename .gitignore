@@ -1,0 +1,8 @@
+.build/
+dist/
+**/bin/
+**/obj/
+__pycache__/
+*.pyc
+.venv/
+test-results/
