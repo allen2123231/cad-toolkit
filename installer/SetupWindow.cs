@@ -118,6 +118,7 @@ public sealed partial class SetupWindow : Window
     void Stop(){if(transaction){status.Text="正在完成設定切換，完成後就能關閉。";return;}cancellation?.Cancel();service.RequestStop();cancel.IsEnabled=false;status.Text="已要求停止，正在等候目前安全步驟結束。已完成項目會保留。";}
     async Task Safe(Func<Task> action){
         if(busy)return;busy=true;transaction=false;lastError="";cancellation=new();service.Token=cancellation.Token;
+        status.Text="請依畫面指引繼續操作。";
         controls.ForEach(b=>b.IsEnabled=false);progress.Visibility=Visibility.Visible;progress.IsIndeterminate=true;cancel.Visibility=Visibility.Visible;cancel.IsEnabled=true;
         try{await action();}
         catch(OperationCanceledException){lastError="已停止。下載可重新開始，安裝會接續已完成的元件。";}

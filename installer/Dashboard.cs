@@ -38,7 +38,9 @@ public sealed partial class SetupWindow
             var detail=new StackPanel();foreach(var key in new[]{"installed","mcp","cad","bridge","enabled"})detail.Children.Add(T((key switch{"installed"=>"元件已安裝","mcp"=>"連線工具可啟動","cad"=>"CAD 已啟動","bridge"=>"橋接已連線",_=>"工具已啟用"})+"："+(ExperienceState.Flag(check,key)?"是":"否"),13));
             card.Children.Add(new Expander{Header="查看各項檢查",Content=detail});
         }else{
-            var history=ExperienceState.Read(Root,"diagnostics.json");string time=ExperienceState.Text(history,"at");
+            var history=ExperienceState.Read(Root,"diagnostics.json");string time="";
+            if(history.TryGetProperty("results",out var prior)&&prior.TryGetProperty(id,out var component))
+                time=ExperienceState.Text(component,"checked_at",ExperienceState.Text(history,"at"));
             card.Children.Add(T(time.Length==0?"尚無連線檢查紀錄。":"歷史檢查："+time+"；不是目前連線狀態。",12));
             card.Children.Add(T(installed?"元件已存在。請重新檢查目前軟體與文件，再開始使用。":"先完成設定精靈，建立這套軟體的連線。"));
         }
