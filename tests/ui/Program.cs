@@ -76,6 +76,7 @@ class UiChecks
                 foreach(var name in new[]{"autocad-command.png","autocad-appload.png","autocad-success.png","inventor-home.png","rhino-input.png","rhino-result.png"}){
                     var image=(System.Windows.Media.Imaging.BitmapSource)imageLoader.Invoke(null,new object[]{name})!;
                     Assert(image.PixelWidth>0&&image.PixelHeight>0,"Offline screenshot embedded "+name);
+                    Assert(image.DpiX==96&&image.DpiY==96,"Screenshot metadata does not shrink text "+name);
                 }
                 foreach(var dpi in new[]{96,144,192})foreach(var page in new[]{"0","1","2","3","4","5","6","7","home","guides","settings","updates","restore","uninstall","help","complete"}){
                     var size=dpi==96?"1180x820":"640x540";
