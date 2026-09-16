@@ -40,6 +40,11 @@ public sealed class SetupWindow : Window
 
     public SetupWindow(string[] args)
     {
+        // Packaged desktop hosts may redirect LocalAppData. An installed manager
+        // follows its own state directory so the Start menu uses the same installation.
+        string executableDirectory = Path.GetDirectoryName(Environment.ProcessPath!)!;
+        if (Path.GetFileName(executableDirectory).Equals("CadToolkit", StringComparison.OrdinalIgnoreCase)
+            && File.Exists(Path.Combine(executableDirectory, "state.json"))) root = executableDirectory;
         using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("CadToolkitSetup.release.json")!;
         release = JsonDocument.Parse(stream).RootElement.Clone();
         http.DefaultRequestHeaders.UserAgent.ParseAdd("CadToolkit/0.1");

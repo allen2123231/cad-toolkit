@@ -109,6 +109,20 @@ class ConfigTests(Fixture):
         self.assertNotIn("enabled", self.editor.load()["mcp_servers"]["autocad-mcp"])
 
 class LifecycleTests(Fixture):
+    def test_installed_plugin_keeps_all_selected_servers_disabled(self):
+        m = Manager(self.base / "install")
+        target = self.base / "candidate"
+        shutil.copytree(ROOT / "plugins", target / "payload/plugins")
+        atomic_json(target / "ready.json", {"version": "0.1.0-preview.1"})
+        m.state["candidate"] = {"path": str(target), "selected": list(COMPONENTS)}
+        with patch("manager.find_codex", return_value="codex.exe"), patch("manager.run"):
+            m.register_plugin({}, str(target), set())
+        plugin = m.root / "marketplace/plugins/cad-toolkit"
+        self.assertEqual(len(list((plugin / "skills").iterdir())), 6)
+        self.assertEqual(set(read_json(plugin / "mcp.json")["mcpServers"]), set(COMPONENTS))
+        policies = m.config.load()["plugins"]["cad-toolkit@cad-toolkit-local"]["mcp_servers"]
+        self.assertTrue(all(not policies[c]["enabled"] for c in COMPONENTS))
+
     def test_corrupt_payload_never_changes_active_version(self):
         payload = self.base / "payload"; payload.mkdir()
         (payload / "x").write_text("bad")

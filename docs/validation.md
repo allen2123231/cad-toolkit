@@ -5,7 +5,7 @@
 ## 建置與自動測試
 
 - 2026-09-16：Windows x64 自包含 WPF EXE 建置成功，已渲染檢查中文介面。
-- 19 項自動測試通過，包括七種元件組合的 Plugin／Skills 生成、中文空白路徑、設定保留、損毀下載、失敗切換、回退、多程序判斷與 MCP NDJSON 協定。
+- 自動測試涵蓋七種元件組合的 Plugin／Skills 生成、中文空白路徑、設定保留、損毀下載、失敗切換、回退、多程序判斷、MCP NDJSON 協定，以及初次安裝時三套新 MCP 保持停用。
 - 官方 Plugin 檢查器及六套 Skill 檢查器通過。
 - 實際離線 wheel 安裝與 MCP 初始化：AutoCAD 8、Inventor 36、Rhino 70 個工具。
 - 固定依賴：Python 3.12.11、uv 0.8.17；AutoCAD／Inventor 使用 MCP SDK 1.30.0，Rhino 使用 2.2.0。

@@ -12,7 +12,7 @@
 ## 只有第一次需要執行
 
 1. 安裝並啟用自己的 AutoCAD、Inventor 或 Rhino 8，以及 Codex。
-2. 開啟 `CadToolkitSetup.exe`，選取需要的軟體，執行「環境檢查」及「安裝所選元件」。
+2. 開啟 `CadToolkitSetup.exe`，選取需要的軟體，執行「環境檢查」及「安裝所選元件」。Plugin 同步安裝，新元件暫不啟用，保留舊 MCP。
 3. 按「CAD 端設定」，依畫面指引載入 AutoCAD LISP、註冊 Rhino 外掛。Inventor 不需要額外外掛。
 4. 執行「連線診斷」。多程序或版本不一致時先處理畫面提示。
 5. 按「切換 Plugin」。只有通過診斷的所選元件才會切換；相關舊設定先備份，其他設定保留。

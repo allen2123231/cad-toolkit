@@ -15,7 +15,9 @@ from common import COMPONENTS, SKILLS, atomic_json, extract_zip, install_lock, r
 from probe import Client
 
 def emit(message, **values):
-    print(json.dumps({"message": message, **values}, ensure_ascii=False), flush=True)
+    # ASCII JSON transport works even on Windows consoles configured for CP1252.
+    # The GUI decodes Unicode escapes before displaying Traditional Chinese.
+    print(json.dumps({"message": message, **values}, ensure_ascii=True), flush=True)
 
 def utc(): return dt.datetime.now(dt.timezone.utc).isoformat()
 
@@ -199,6 +201,8 @@ class Manager:
         self.state["candidate"] = {"path": str(target), "selected": selected, "version": version}
         self.save()
         if setup: self.register_windows(Path(setup))
+        # Install the Plugin with new servers disabled; existing CAD MCPs keep running.
+        self.register_plugin(self.state["active"], str(target), set(self.state["active"]))
         emit("元件安裝完成。請完成 CAD 端設定並診斷，通過後再切換 Plugin。", candidate=self.state["candidate"],
              autocad_lisp=str(target / "autocad/mcp_dispatch.lsp"), rhino_plugin=str(target / "payload/cad/rhino/rhinomcp.rhp"))
 
@@ -213,8 +217,9 @@ class Manager:
                                 "Publisher": "allen2123231", "InstallLocation": str(self.root),
                                 "UninstallString": f'"{app}" --uninstall'}.items():
                 winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
-        shortcut = Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs/CAD Toolkit.url"
-        shortcut.write_text("[InternetShortcut]\nURL=" + app.as_uri() + "\n", encoding="utf-8")
+        shortcut = Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs/CAD Toolkit.lnk"
+        run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+             Path(__file__).with_name("create_shortcut.ps1"), "-Target", app, "-LinkPath", shortcut], timeout=30)
 
     def diagnose(self, selected, active=False):
         candidate = self.state.get("candidate")
@@ -275,6 +280,9 @@ class Manager:
 
     def register_plugin(self, mapping, template_target, enabled):
         marketplace = self.root / "marketplace"
+        candidate = self.state.get("candidate")
+        if candidate:
+            mapping = {**{c: candidate["path"] for c in candidate["selected"]}, **mapping}
         commands = {c: mcp_command(path, c) for c, path in mapping.items()}
         stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M%S%f")
         version = read_json(Path(template_target) / "ready.json")["version"] + "+codex." + stamp
@@ -341,7 +349,7 @@ class Manager:
             import winreg
             try: winreg.DeleteKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Uninstall\CadToolkit")
             except FileNotFoundError: pass
-            shortcut = Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs/CAD Toolkit.url"
+            shortcut = Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs/CAD Toolkit.lnk"
             shortcut.unlink(missing_ok=True)
         emit("已解除 Plugin 並還原舊設定。版本檔案與備份保留在安裝目錄，可在 CAD 關閉後手動刪除。")
 
