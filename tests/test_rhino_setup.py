@@ -32,7 +32,7 @@ class RhinoSetupTests(Fixture):
         target, package, rhino = self.prepare()
         with patch('rhino_setup.run', return_value='Successfully installed rhinomcp (0.5.2)') as run:
             result = install_plugin(target, str(rhino))
-        run.assert_called_once_with([rhino.with_name('Yak.exe'), 'install', package], timeout=120)
+        run.assert_called_once_with([rhino.with_name('Yak.exe'), 'install', package.resolve()], timeout=120)
         self.assertEqual(result['version'], '0.5.2')
 
     def test_corrupt_package_is_rejected_before_execution(self):
