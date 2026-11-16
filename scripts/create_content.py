@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 plugin = ROOT / "plugins/cad-toolkit"
 version = json.loads((ROOT / "sources.json").read_text())["version"]
-interface = {"displayName": "CAD Toolkit", "shortDescription": "AutoCAD、Inventor、Rhino 整合工具與中文工作流程",
+interface = {"displayName": "MCP Toolkit", "shortDescription": "AutoCAD、Inventor、Rhino 整合工具與中文工作流程",
     "longDescription": "搭配 Windows 安裝程式管理三套 CAD MCP、獨立執行環境及六套中文 Skills。",
     "developerName": "allen2123231", "category": "Productivity", "capabilities": ["Read", "Write"],
     "websiteURL": "https://github.com/allen2123231/cad-toolkit",

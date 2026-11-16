@@ -17,153 +17,172 @@
       "從 Windows 開始功能表開啟 Codex 桌面應用程式，使用自己的帳號完成登入。",
       "在 Codex 建立本機對話，選擇自己的練習資料夾。一般網頁聊天不會直接使用本機 CAD stdio 工具。",
       "在左側使用新增對話／新增任務入口，建立本機對話。若要求資料夾，可選自己的練習資料夾。完成工具啟用後需要再新增一個對話，才能讀取新工具。",
-      "回到 CAD Toolkit 按「重新檢查 Codex」。找到程式代表可以繼續安裝；帳號是否登入、對話是否能載入工具，要在最後的唯讀練習確認。"
+      "完成 Codex 安裝及登入後，回 MCP Toolkit 按「安裝所選 MCP」。Toolkit 會使用 Codex 桌面應用程式內附的工具設定功能，不需要另外在終端機安裝 CLI。"
     ],
     "success": "Toolkit 顯示已找到 Codex；桌面應用程式可以建立對話並送出文字。",
     "problems": [
-      "找不到 Codex：重新啟動剛安裝的桌面應用程式，或安裝官方 Codex CLI 後重試。若仍找不到，展開詳細資料提供錯誤。",
+      "找不到 Codex：先安裝並登入官方桌面應用程式，再回 Toolkit 按安裝重試。",
       "只有一般聊天：依官方入門頁確認 Codex 入口及帳號可用功能；不同版本的介面名稱可能不同。",
       "已安裝 Plugin 但對話看不到工具：完成此處的連線及啟用，再新增本機對話。"
     ]
   },
   "autocad": {
-    "title": "讓 AutoCAD 接受連線",
-    "purpose": "新版在找不到派送器時會嘗試自動載入。先直接檢查連線；手動 APPLOAD 留作載入受阻或舊版派送器仍在回應時的處理方式。",
-    "location": "AutoCAD 視窗下方的指令列；若看不到，可按 Ctrl+9 顯示。",
-    "version": "以 AutoCAD 2026 操作位置設計；本版完整 GUI 載入流程待實機驗收。其他版本未驗證。",
+    "title": "安裝 AutoCAD 自動連線",
+    "purpose": "在新安裝介面選擇 AutoCAD MCP，程式會自動完成連線設定。",
+    "location": "完整管理 → 安裝與版本 → 安裝／修復 AutoCAD MCP",
+    "version": "已驗證 AutoCAD 2026 每份圖面的自動載入與 file_ipc 讀圖；其他版本未驗證。",
     "command": "",
     "diagram": [
-      "1  開啟 AutoCAD 與圖面，直接檢查",
-      "2  找不到派送器時嘗試自動載入",
-      "3  必要時才使用 APPLOAD 備用圖解"
+      "1  選擇 AutoCAD MCP，按安裝所選 MCP",
+      "2  開啟 AutoCAD，完成授權及文件選擇",
+      "3  系統匣確認可以使用，到 Codex 開新對話"
     ],
     "steps": [
-      "先開啟 AutoCAD 與要使用的圖面，完成目前指令，回 Toolkit 按「檢查這一步」。若已連線，可直接繼續；只有失敗時才依後續 APPLOAD 圖解操作。",
-      "開啟 AutoCAD 與要使用的圖面，完成目前指令。點下方指令輸入區，輸入 APPLOAD，再按 Enter。",
-      "按 Toolkit 的「開啟檔案位置」或「複製完整路徑」，找到目前版本的 mcp_dispatch.lsp。先選取檔案，再按「載入」。如出現信任提示，核對這個確切資料夾；不要將整個磁碟設為可信任。",
-      "對照下方訊息「mcp_dispatch.lsp 成功載入」。保持 AutoCAD 開啟，回 Toolkit 按「檢查這一步」。"
+      "在安裝與版本頁選擇 AutoCAD MCP，按「安裝所選 MCP」。必要環境、外掛及 AI 工具設定一起完成。",
+      "開啟 AutoCAD。若安裝時已開啟，請先自行儲存並重開一次，再開啟要使用的文件。",
+      "查看右下角 MCP Toolkit 狀態。檢查通過後自動啟用；到 Codex 開啟新對話即可使用。"
     ],
     "success": "檢查顯示橋接已連線、目前圖面名稱。詳細資料的 backend 必須是 file_ipc；只有工具程序啟動不算成功。",
     "problems": [
-      "APPLOAD 找不到檔案：先完成「安裝連線工具」，再使用本頁提供的實際路徑。",
-      "仍無法連線：重新載入本頁檔案，確認沒有其他 AutoCAD 程序。Python 與 LISP 的通訊目錄由 Toolkit 同步產生。",
-      "重開 AutoCAD 或切換圖面後：先重新檢查，必要時才以本頁路徑 APPLOAD 載入；舊版仍在回應時也需重新載入新版。"
+      "找不到軟體：先安裝自己的 AutoCAD 並完成合法授權。",
+      "尚未連線：在安裝與版本頁按安裝／修復；若外掛正在使用，先自行儲存並重開軟體。",
+      "多個視窗：Rhino 可在管理視窗選擇目標；其他軟體請先確認唯一目標。Toolkit 不會替你關閉文件。"
     ],
     "pages": [
       {
-        "title": "先檢查自動連線",
-        "location": "AutoCAD 圖面與 Toolkit「檢查這一步」",
-        "text": "開啟 AutoCAD 與圖面，完成目前指令後回 Toolkit 檢查。新版可在派送器未接收命令時自動載入；成功後直接到下一個設定步驟。舊版仍在回應或自動載入受阻時，再使用後面的 APPLOAD 圖解。",
+        "title": "安裝 AutoCAD MCP",
+        "location": "完整管理 → 安裝與版本 → 安裝／修復 AutoCAD MCP",
+        "text": "在安裝與版本頁選擇 AutoCAD MCP，按「安裝所選 MCP」。必要環境、外掛及 AI 工具設定一起完成。",
         "image": "",
         "caption": "",
-        "success": "讀到 file_ipc 與目前圖面。未通過時才繼續手動載入圖解。",
+        "success": "必要環境與連線設定已準備。",
         "command": ""
       },
       {
-        "title": "在指令列輸入 APPLOAD",
-        "location": "AutoCAD 視窗下方的指令列",
-        "text": "開啟 AutoCAD 與要使用的圖面，完成目前指令。點下方指令輸入區，輸入 APPLOAD，再按 Enter。",
-        "image": "autocad-command.png",
-        "caption": "AutoCAD 2026 真實指令列；原始像素，未重繪。",
-        "success": "出現「載入／卸載應用程式」視窗，再進入下一步。",
-        "command": "APPLOAD"
-      },
-      {
-        "title": "選取檔案並載入",
-        "location": "載入／卸載應用程式對話框",
-        "text": "按 Toolkit 的「開啟檔案位置」或「複製完整路徑」，找到目前版本的 mcp_dispatch.lsp。先選取檔案，再按「載入」。如出現信任提示，核對這個確切資料夾；不要將整個磁碟設為可信任。",
-        "image": "autocad-appload.png",
-        "caption": "AutoCAD 2026 真實對話框。① 選取 mcp_dispatch　② 按「載入」。",
-        "success": "訊息區顯示檔案載入成功，接著查看下一步。",
+        "title": "開啟 AutoCAD",
+        "location": "Toolkit 的「開啟 AutoCAD」",
+        "text": "開啟 AutoCAD。若安裝時已開啟，請先自行儲存並重開一次，再開啟要使用的文件。",
+        "image": "",
+        "caption": "",
+        "success": "軟體已正常開啟；授權／登入確認完成。",
         "command": ""
       },
       {
-        "title": "確認載入結果",
-        "location": "AutoCAD 下方指令列訊息區",
-        "text": "對照下方訊息「mcp_dispatch.lsp 成功載入」。保持 AutoCAD 開啟，回 Toolkit 按「檢查這一步」。",
-        "image": "autocad-success.png",
-        "caption": "使用者提供的 AutoCAD 成功訊息原圖。",
-        "success": "載入訊息只是第一項確認；Toolkit 必須讀到 file_ipc 與目前圖面，才算連線通過。",
+        "title": "自動連線",
+        "location": "右下角 MCP Toolkit 狀態面板",
+        "text": "查看右下角 MCP Toolkit 狀態。檢查通過後自動啟用；到 Codex 開啟新對話即可使用。",
+        "image": "",
+        "caption": "",
+        "success": "檢查顯示橋接已連線、目前圖面名稱。詳細資料的 backend 必須是 file_ipc；只有工具程序啟動不算成功。",
         "command": ""
       }
     ]
   },
   "rhino": {
     "title": "安裝 Rhino 外掛，自動連線",
-    "purpose": "在 Toolkit 安裝自動連線外掛；之後開啟 Rhino 即可使用。",
-    "location": "Toolkit 本頁的「安裝 Rhino 自動連線外掛」按鈕。",
+    "purpose": "在新安裝介面選擇 Rhino MCP，程式會自動完成連線設定。",
+    "location": "完整管理 → 安裝與版本 → 安裝／修復 Rhino MCP",
     "version": "固定採用本分支 RhinoMCP 0.5.2，已驗證正常啟動、自動橋接與新文件圓柱建模。Toolkit 完整乾淨 Windows 流程仍待驗收。",
     "command": "",
     "diagram": [
-      "1  按「安裝 Rhino 自動連線外掛」",
-      "2  開啟／重開 Rhino",
-      "3  回 Toolkit 檢查連線與版本"
+      "1  選擇 Rhino MCP，按安裝所選 MCP",
+      "2  開啟 Rhino，完成授權及文件選擇",
+      "3  系統匣確認可以使用，到 Codex 開新對話"
     ],
     "steps": [
-      "先完成連線工具安裝，再按本頁「安裝 Rhino 自動連線外掛」。Toolkit 使用 Rhino 自帶的套件管理工具安裝固定版本，不必拖曳檔案。",
-      "若 Rhino 已開啟，請自行儲存工作後重開；尚未開啟時直接開啟 Rhino 8。等待文件準備好，橋接會自動啟動。",
-      "回 Toolkit 按「檢查連線」，確認外掛與 Python 端同為 0.5.2，並讀到目前文件。日常不用輸入 mcpstart，也不用設定啟動命令。"
+      "在安裝與版本頁選擇 Rhino MCP，按「安裝所選 MCP」。必要環境、外掛及 AI 工具設定一起完成。",
+      "開啟 Rhino。若安裝時已開啟，請先自行儲存並重開一次，再開啟要使用的文件。",
+      "查看右下角 MCP Toolkit 狀態。檢查通過後自動啟用；到 Codex 開啟新對話即可使用。"
     ],
     "success": "檢查顯示橋接已連線與文件摘要，而且外掛與伺服器版本相符。",
     "problems": [
-      "外掛尚未安裝：先按本頁安裝按鈕，再開啟 Rhino。",
-      "找不到套件管理工具：先安裝 Rhino 8；若不是預設位置，回「選擇軟體」指定 Rhino.exe。",
-      "版本不符：確認安裝完成，自行儲存並重開所有使用舊外掛的 Rhino，再重新檢查。",
-      "仍未連線：等待文件準備好，確認不是安全模式且外掛未停用；再檢查。",
-      "多個 Rhino 程序：先確認唯一目標；Toolkit 不會猜測或自動關閉其他工作。"
+      "找不到軟體：先安裝自己的 Rhino 並完成合法授權。",
+      "尚未連線：在安裝與版本頁按安裝／修復；若外掛正在使用，先自行儲存並重開軟體。",
+      "多個視窗：Rhino 可在管理視窗選擇目標；其他軟體請先確認唯一目標。Toolkit 不會替你關閉文件。"
     ],
     "pages": [
       {
-        "title": "在 Toolkit 安裝外掛",
-        "location": "本頁上方的安裝按鈕",
-        "text": "按「安裝 Rhino 自動連線外掛」。安裝由 Rhino 8 自帶的套件管理工具完成，保留整組相依檔案。",
+        "title": "安裝 Rhino MCP",
+        "location": "完整管理 → 安裝與版本 → 安裝／修復 Rhino MCP",
+        "text": "在安裝與版本頁選擇 Rhino MCP，按「安裝所選 MCP」。必要環境、外掛及 AI 工具設定一起完成。",
         "image": "",
         "caption": "",
-        "success": "顯示外掛已安裝，並提示直接開啟或重新開啟 Rhino。",
+        "success": "必要環境與連線設定已準備。",
         "command": ""
       },
       {
-        "title": "開啟 Rhino，等待自動連線",
-        "location": "本頁上方的「開啟 Rhino」與「檢查連線」按鈕",
-        "text": "開啟 Rhino 8；若剛才已開啟，先自行儲存並重開。文件準備好後橋接會自動啟動，回 Toolkit 按「檢查連線」。",
+        "title": "開啟 Rhino",
+        "location": "Toolkit 的「開啟 Rhino」",
+        "text": "開啟 Rhino。若安裝時已開啟，請先自行儲存並重開一次，再開啟要使用的文件。",
         "image": "",
         "caption": "",
-        "success": "Toolkit 讀到目前文件，且外掛與服務版本一致。",
+        "success": "軟體已正常開啟；授權／登入確認完成。",
+        "command": ""
+      },
+      {
+        "title": "自動連線",
+        "location": "右下角 MCP Toolkit 狀態面板",
+        "text": "查看右下角 MCP Toolkit 狀態。檢查通過後自動啟用；到 Codex 開啟新對話即可使用。",
+        "image": "",
+        "caption": "",
+        "success": "檢查顯示橋接已連線與文件摘要，而且外掛與伺服器版本相符。",
         "command": ""
       }
     ],
     "first_time": [
-      "只在首次安裝或更新外掛時按一次本頁的安裝按鈕。",
-      "若 Rhino 正在執行，安裝完成後自行儲存並重開即可載入新版。",
-      "套件由固定 GitHub Release 取得並驗證 SHA-256，與 Python 服務版本配對。"
+      "安裝會自動準備完整原生套件，不必拖曳 RHP。",
+      "已開啟時先自行儲存並重開；之後不需輸入 mcpstart。",
+      "服務與外掛版本必須配對，版本不符會顯示在狀態面板。"
     ]
   },
   "inventor": {
     "title": "開啟 Inventor 就可以",
-    "purpose": "Inventor 使用內建 COM 連線，不需要額外外掛，也不必先建立文件。",
-    "location": "Windows 開始功能表 → Inventor；等待首頁出現。",
+    "purpose": "在新安裝介面選擇 Inventor MCP，程式會自動完成連線設定。",
+    "location": "完整管理 → 安裝與版本 → 安裝／修復 Inventor MCP",
     "version": "Inventor 2027.1 曾完成唯讀 COM 文件檢查；新手完整建模練習未驗證。其他版本未驗證。",
     "command": "",
     "diagram": [
-      "1  開啟 Inventor，停留在首頁"
+      "1  選擇 Inventor MCP，按安裝所選 MCP",
+      "2  開啟 Inventor，完成授權及文件選擇",
+      "3  系統匣確認可以使用，到 Codex 開新對話"
     ],
     "steps": [
-      "開啟 Inventor，等待首頁出現。不用按「開啟」或「新建」。保持 Inventor 執行，回 Toolkit 按「檢查這一步」。"
+      "在安裝與版本頁選擇 Inventor MCP，按「安裝所選 MCP」。必要環境、外掛及 AI 工具設定一起完成。",
+      "開啟 Inventor。可以停在首頁，建模時再開啟正確文件。",
+      "查看右下角 MCP Toolkit 狀態。檢查通過後自動啟用；到 Codex 開啟新對話即可使用。"
     ],
     "success": "Toolkit 確認 Inventor COM 應用程式已連線。沒有文件時顯示「首頁／無文件」，仍可啟用。",
     "problems": [
-      "已開啟但連不到：確認登入／授權對話框已完成，Toolkit 與 Inventor 使用相同 Windows 使用者。",
-      "有多個程序：自行保存並處理其他視窗後重查，Toolkit 不會猜測目標。",
-      "要做建模練習時再另建空白 .ipt；首頁連線準備不需要這一步。"
+      "找不到軟體：先安裝自己的 Inventor 並完成合法授權。",
+      "尚未連線：在安裝與版本頁按安裝／修復；若外掛正在使用，先自行儲存並重開軟體。",
+      "多個視窗：Rhino 可在管理視窗選擇目標；其他軟體請先確認唯一目標。Toolkit 不會替你關閉文件。"
     ],
     "pages": [
       {
-        "title": "開啟 Inventor，停留在首頁",
-        "location": "Inventor 2027.1 首頁",
-        "text": "開啟 Inventor，等待首頁出現。不用按「開啟」或「新建」。保持 Inventor 執行，回 Toolkit 按「檢查這一步」。",
-        "image": "inventor-home.png",
-        "caption": "使用者提供的 Inventor 2027.1 首頁局部。已移除帳號與最近檔案區域。",
-        "success": "確認應用程式已連線即可。有文件時會讀取文件名稱；要建模時才另外開啟正確文件。",
+        "title": "安裝 Inventor MCP",
+        "location": "完整管理 → 安裝與版本 → 安裝／修復 Inventor MCP",
+        "text": "在安裝與版本頁選擇 Inventor MCP，按「安裝所選 MCP」。必要環境、外掛及 AI 工具設定一起完成。",
+        "image": "",
+        "caption": "",
+        "success": "必要環境與連線設定已準備。",
+        "command": ""
+      },
+      {
+        "title": "開啟 Inventor",
+        "location": "Toolkit 的「開啟 Inventor」",
+        "text": "開啟 Inventor。可以停在首頁，建模時再開啟正確文件。",
+        "image": "",
+        "caption": "",
+        "success": "軟體已正常開啟；授權／登入確認完成。",
+        "command": ""
+      },
+      {
+        "title": "自動連線",
+        "location": "右下角 MCP Toolkit 狀態面板",
+        "text": "查看右下角 MCP Toolkit 狀態。檢查通過後自動啟用；到 Codex 開啟新對話即可使用。",
+        "image": "",
+        "caption": "",
+        "success": "Toolkit 確認 Inventor COM 應用程式已連線。沒有文件時顯示「首頁／無文件」，仍可啟用。",
         "command": ""
       }
     ]

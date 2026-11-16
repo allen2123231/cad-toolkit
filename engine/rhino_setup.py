@@ -1,6 +1,8 @@
 """Install the pinned Rhino package with Rhino's own per-user package manager."""
 import os
+import hashlib
 from pathlib import Path
+import zipfile
 
 from common import read_json, run, sha256, within
 
@@ -46,5 +48,18 @@ def install_plugin(target, rhino_exe=None):
     expected = manifest["files"].get(relative)
     if not expected or not package.is_file() or sha256(package) != expected:
         raise ValueError("Rhino 外掛安裝包 SHA-256 不符，請重新下載同一版本。")
+    version = spec["plugin_asset"]["version"]
+    installed = Path(os.environ.get('APPDATA', '')) / 'McNeel/Rhinoceros/packages/8.0/rhinomcp' / version
+    if installed.is_dir():
+        try:
+            with zipfile.ZipFile(package) as archive:
+                files = [f for f in archive.infolist() if not f.is_dir()]
+                verified = bool(files) and all((installed / f.filename).is_file()
+                                              and sha256(installed / f.filename) == hashlib.sha256(archive.read(f)).hexdigest()
+                                              for f in files)
+            if verified:
+                return {'version': version, 'method': 'yak', 'already_installed': True, 'output': '已安裝相同且通過驗證的完整套件。'}
+        except (OSError, zipfile.BadZipFile):
+            pass
     output = run([find_yak(rhino_exe), "install", package], timeout=120)
     return {"version": spec["plugin_asset"]["version"], "method": "yak", "output": output.strip()}

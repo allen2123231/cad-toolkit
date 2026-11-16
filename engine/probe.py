@@ -7,8 +7,9 @@ import threading
 import time
 
 class Client:
-    def __init__(self, command, env=None):
-        self.p = subprocess.Popen(command, env=env, stdin=subprocess.PIPE,
+    def __init__(self, command, env=None, cwd=None, timeout=35):
+        self.timeout = timeout
+        self.p = subprocess.Popen(command, env=env, cwd=cwd, stdin=subprocess.PIPE,
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   text=True, encoding="utf-8", errors="replace",
                                   creationflags=0x08000000 if os.name == "nt" else 0)
@@ -28,7 +29,8 @@ class Client:
         self.err_reader = threading.Thread(target=stderr, daemon=True)
         self.reader.start(); self.err_reader.start()
 
-    def request(self, method, params=None, timeout=35):
+    def request(self, method, params=None, timeout=None):
+        timeout = self.timeout if timeout is None else timeout
         self.counter += 1
         self.send({"jsonrpc": "2.0", "id": self.counter, "method": method, "params": params or {}})
         deadline = time.monotonic() + timeout

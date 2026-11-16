@@ -109,13 +109,14 @@ public sealed class ToolkitService
         var start = new ProcessStartInfo(Path.Combine(payload, "runtime", "python.exe")) {
             UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
             StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8 };
+        if(ExperienceState.Codex() is string codex)start.Environment["MCP_TOOLKIT_CODEX"]=codex;
         foreach(var arg in new[] { "-X", "utf8", Path.Combine(payload, "engine", "manager.py"), action,
                                   "--root", root, "--components", selected }) start.ArgumentList.Add(arg);
-        if (action == "install")
+        if (action == "install" || action == "setup")
         {
             start.ArgumentList.Add("--payload"); start.ArgumentList.Add(payload);
             start.ArgumentList.Add("--setup"); start.ArgumentList.Add(Environment.ProcessPath!);
-            start.ArgumentList.Add("--defer-plugin");
+            if(action == "install")start.ArgumentList.Add("--defer-plugin");
         }
         if (active) start.ArgumentList.Add("--active");
         if (!string.IsNullOrEmpty(rhinoExe)) { start.ArgumentList.Add("--rhino-exe"); start.ArgumentList.Add(rhinoExe); }

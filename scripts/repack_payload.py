@@ -16,6 +16,8 @@ assert all(manifest['components'][c].get('plugin_asset') == spec.get('plugin_ass
 assert all(sha256(ROOT/'locks'/f'{c}.txt') == sha256(payload/'locks'/f'{c}.txt') for c in sources['components']), 'Changed dependency locks require build_payload.py'
 assert manifest['python'] == sources['python'] and manifest['uv'] == sources['uv'], 'Changed runtime requires build_payload.py'
 manifest['version'] = sources['version']
+for component, spec in sources['components'].items():
+    manifest['components'][component]['package_version'] = spec.get('package_version')
 manifest["files"] = {p.relative_to(payload).as_posix(): sha256(p) for p in sorted(payload.rglob("*"))
                      if p.is_file() and p.name != "bundle.json" and "__pycache__" not in p.parts}
 atomic_json(payload / "bundle.json", manifest)

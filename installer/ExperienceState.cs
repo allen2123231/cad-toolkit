@@ -56,7 +56,16 @@ public sealed class ExperienceState
         var paths = (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator);
         foreach(var dir in paths) if(File.Exists(Path.Combine(dir, "codex.exe"))) return Path.Combine(dir, "codex.exe");
         var local = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenAI/Codex/bin");
-        try { return Directory.Exists(local) ? Directory.EnumerateFiles(local, "codex.exe", SearchOption.AllDirectories).FirstOrDefault() : null; } catch { return null; }
+        try { var found=Directory.Exists(local)?Directory.EnumerateFiles(local,"codex.exe",SearchOption.AllDirectories).FirstOrDefault():null;if(found!=null)return found; } catch { }
+        // The Windows desktop app ships its own CLI; no separate terminal install is required.
+        try{
+            var start=new ProcessStartInfo("powershell.exe"){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
+            foreach(var arg in new[]{"-NoProfile","-NonInteractive","-Command","Get-AppxPackage -Name OpenAI.Codex | Select-Object -First 1 -ExpandProperty InstallLocation"})start.ArgumentList.Add(arg);
+            using var process=Process.Start(start)!;var output=process.StandardOutput.ReadToEndAsync();var error=process.StandardError.ReadToEndAsync();
+            if(!process.WaitForExit(5000)){process.Kill(true);return null;}
+            string file=Path.Combine(output.GetAwaiter().GetResult().Trim(),"app/resources/codex.exe");
+            return File.Exists(file)?file:null;
+        }catch{return null;}
     }
     public static string? Detect(string id) {
         string exe = id switch { "autocad"=>"acad.exe", "inventor"=>"Inventor.exe", _=>"Rhino.exe" };

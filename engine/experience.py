@@ -6,7 +6,7 @@ class Cancelled(RuntimeError):
 
 def outcome(component, status, enabled=False):
     code = 'BRIDGE_NOT_CONNECTED'
-    action = {'autocad': '切換到 AutoCAD，依圖解用 APPLOAD 載入指定檔案，再重新檢查。',
+    action = {'autocad': '按「安裝 AutoCAD 自動連線」，自行儲存並重開 AutoCAD，再重新檢查。',
               'rhino': '按「安裝自動連線外掛」，完成後自行儲存並重開 Rhino；新版會自動連線，再重新檢查。',
               'inventor': '開啟 Inventor，停留在首頁即可，再重新檢查。'}[component]
     if not status.get('installed'):

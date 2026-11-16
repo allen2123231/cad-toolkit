@@ -28,6 +28,8 @@ def codex_home():
     return Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
 
 def find_codex():
+    supplied = os.environ.get('MCP_TOOLKIT_CODEX')
+    if supplied and Path(supplied).is_file(): return supplied
     found = shutil.which("codex.exe") or shutil.which("codex")
     if found: return found
     base = Path(os.environ.get("LOCALAPPDATA", "")) / "OpenAI/Codex/bin"
@@ -46,6 +48,9 @@ def mcp_command(version_dir, component):
     version_dir = Path(version_dir)
     scripts = version_dir / "envs" / component / "Scripts"
     if component == "rhino": return [str(scripts / "rhinomcp.exe")]
+    if component == "inventor":
+        bootstrap = version_dir / "payload/engine/inventor_session.py"
+        if bootstrap.exists(): return [str(scripts / "python.exe"), "-X", "utf8", str(bootstrap)]
     return [str(scripts / "python.exe"), "-X", "utf8", "-m",
             "autocad_mcp" if component == "autocad" else "src.server"]
 
@@ -55,7 +60,7 @@ def mcp_env(root):
                AUTOCAD_MCP_IPC_DIR=str(Path(root) / "ipc"), AUTOCAD_MCP_IPC_TIMEOUT="8")
     return env
 
-def plugin_files(destination, template, commands, version, env):
+def plugin_files(destination, template, commands, version, env, history_root=None):
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=True)
     metadata = read_json(Path(template) / "plugin.json")
@@ -68,6 +73,13 @@ def plugin_files(destination, template, commands, version, env):
     atomic_json(destination / ".codex-plugin/plugin.json", legacy)
     portable, compatible = {}, {}
     for name, cmd in commands.items():
+        if history_root:
+            tools_dir = destination / "tools"
+            tools_dir.mkdir(exist_ok=True)
+            for helper in ("relay.py", "history.py", "rhino_instances.py"):
+                shutil.copy2(Path(__file__).with_name(helper), tools_dir / helper)
+            python = Path(cmd[0]).with_name("python.exe")
+            cmd = [str(python), "-X", "utf8", str(tools_dir / "relay.py"), "--root", str(history_root), "--component", name, "--", *cmd]
         value = {"command": cmd[0], "args": cmd[1:], "env": {key: env[key] for key in (
             "PYTHONUTF8", "PYTHONIOENCODING", "AUTOCAD_MCP_BACKEND", "AUTOCAD_MCP_IPC_DIR", "AUTOCAD_MCP_IPC_TIMEOUT")}}
         compatible[name] = value
@@ -117,6 +129,7 @@ class ConfigEditor:
                                            "identity": {k: v for k, v in doc["mcp_servers"][name].items() if k != "enabled"}})
                 doc["mcp_servers"][name]["enabled"] = False
         plugin = doc.setdefault("plugins", {}).setdefault("cad-toolkit@cad-toolkit-local", {})
+        if enabled: plugin["enabled"] = True
         policy = plugin.setdefault("mcp_servers", {})
         for c in COMPONENTS: policy.setdefault(c, {})["enabled"] = c in enabled
         self.save(doc)
@@ -235,6 +248,22 @@ class Manager:
         self.register_plugin(self.state['active'], candidate['path'], set(self.state['active']))
         emit('Plugin 已安裝。新元件保持停用，請先逐套檢查連線。', step='plugin', outcome='completed')
 
+    def setup(self, payload, selected, setup=None):
+        self.install(payload, selected, setup, defer_plugin=True)
+        pending = set(self.state.get('auto_enable_pending', []))
+        for component in selected:
+            try:
+                if component == 'autocad': self.configure_autocad()
+                elif component == 'rhino': self.configure_rhino()
+                pending.add(component)
+            except Exception as exc:
+                emit(f'{component} 元件已安裝，連線設定需要處理。', step='setup', component=component,
+                     outcome='needs_action', next_action=str(exc))
+        self.configure_plugin()
+        self.state['auto_enable_pending'] = sorted(pending)
+        self.save()
+        emit('安裝完成。開啟軟體後會自動檢查並啟用連線，不需要輸入啟動指令。', step='setup', outcome='completed')
+
     def configure_rhino(self):
         from rhino_setup import install_plugin
         candidate = self.state.get('candidate')
@@ -243,26 +272,40 @@ class Manager:
         self.checkpoint()
         emit('正在安裝 Rhino 自動連線外掛，完成前請勿關閉。', step='configure_rhino', component='rhino', cancellable=False)
         result = install_plugin(candidate['path'], getattr(self, 'rhino_exe', None))
-        result.update(restart_required=bool(processes('Rhino.exe')), installed_at=utc())
+        result.update(restart_required=bool(processes('Rhino.exe')) and not result.get('already_installed', False), installed_at=utc())
         atomic_json(Path(candidate['path']) / 'rhino-plugin.json', result)
         message = ('外掛已安裝。請自行儲存工作並重新開啟 Rhino，新版會自動連線。'
                    if result['restart_required'] else '外掛已安裝。現在開啟 Rhino，文件準備好後會自動連線。')
         emit(message, step='configure_rhino', component='rhino', outcome='completed', result=result)
+
+    def configure_autocad(self):
+        from autocad_setup import install_bundle
+        candidate = self.state.get('candidate')
+        if not candidate or 'autocad' not in candidate.get('selected', []):
+            raise RuntimeError('請先完成 AutoCAD 連線工具安裝。')
+        self.checkpoint()
+        result = install_bundle(candidate['path'])
+        result['restart_required'] = bool(processes('acad.exe'))
+        emit('AutoCAD 自動連線已設定。若已開啟，請儲存工作並重新開啟；之後不需要 APPLOAD。',
+             step='configure_autocad', component='autocad', outcome='completed', result=result)
 
     def register_windows(self, setup):
         if os.name != "nt": return
         import winreg
         app = self.root / "CadToolkitSetup.exe"
         if setup.resolve() != app.resolve(): shutil.copy2(setup, app)
+        desktop_app = self.root / "McpToolkit.exe"
+        if setup.resolve() != desktop_app.resolve(): shutil.copy2(setup, desktop_app)
         key_path = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\CadToolkit"
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-            for name, value in {"DisplayName": "CAD Toolkit", "DisplayVersion": self.state["candidate"]["version"],
+            for name, value in {"DisplayName": "MCP Toolkit", "DisplayVersion": self.state["candidate"]["version"],
                                 "Publisher": "allen2123231", "InstallLocation": str(self.root),
                                 "UninstallString": f'"{app}" --uninstall'}.items():
                 winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
-        shortcut = Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs/CAD Toolkit.lnk"
+        shortcut = Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs/MCP Toolkit.lnk"
         run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
-             Path(__file__).with_name("create_shortcut.ps1"), "-Target", app, "-LinkPath", shortcut], timeout=30)
+             Path(__file__).with_name("create_shortcut.ps1"), "-Target", desktop_app, "-LinkPath", shortcut,
+             "-Arguments", f'"--root={self.root}"'], timeout=30)
 
     def diagnose(self, selected, active=False):
         candidate = self.state.get("candidate")
@@ -283,6 +326,13 @@ class Manager:
             try:
                 # Always distinguish successful MCP startup from successful CAD communication.
                 env = mcp_env(self.root)
+                if c == 'rhino':
+                    from rhino_instances import choose
+                    instance = choose(self.root, [int(p['pid']) for p in proc])
+                    if instance:
+                        env['RHINO_MCP_PORT'] = str(instance['port'])
+                        proc = [p for p in proc if int(p['pid']) == instance['pid']]
+                        status['processes'] = proc
                 if c == "autocad" and len(proc) != 1: env["AUTOCAD_MCP_BACKEND"] = "ezdxf"
                 with Client(mcp_command(target, c), env) as client:
                     client.initialize(); tools = client.request("tools/list")
@@ -343,9 +393,9 @@ class Manager:
         stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M%S%f")
         version = read_json(Path(template_target) / "ready.json")["version"] + "+codex." + stamp
         plugin_files(marketplace / "plugins/cad-toolkit", Path(template_target) / "payload/plugins/cad-toolkit",
-                     commands, version, mcp_env(self.root))
+                     commands, version, mcp_env(self.root), history_root=self.root)
         atomic_json(marketplace / ".agents/plugins/marketplace.json", {"name": "cad-toolkit-local",
-            "interface": {"displayName": "CAD Toolkit"}, "plugins": [{"name": "cad-toolkit",
+            "interface": {"displayName": "MCP Toolkit"}, "plugins": [{"name": "cad-toolkit",
                 "source": {"source": "local", "path": "./plugins/cad-toolkit"},
                 "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"}, "category": "Productivity"}]})
         self.config.set_policy(enabled, self.state["originals"])
@@ -373,6 +423,7 @@ class Manager:
             emit("正在切換這套工具的設定；完成前請勿關閉。", step="configure", cancellable=False)
             self.register_plugin(desired, candidate["path"], set(desired))
             self.state["active"] = desired
+            self.state['auto_enable_pending'] = [c for c in self.state.get('auto_enable_pending', []) if c not in selected]
             self.save()
         except Exception:
             self.config.restore_originals(self.state["originals"])
@@ -393,7 +444,11 @@ class Manager:
         self.config.set_policy(set(previous), self.state["originals"])
         if previous: self.register_plugin(previous, next(iter(previous.values())), set(previous))
         self.state["previous"], self.state["active"] = self.state["active"], previous
+        self.state['auto_enable_pending'] = []
         self.save()
+        if previous.get("autocad"):
+            from autocad_setup import install_bundle
+            install_bundle(previous["autocad"])
         emit("已還原上一組 MCP 設定；請重新啟動 Codex 對話。", active=previous)
 
     def uninstall(self):
@@ -408,18 +463,30 @@ class Manager:
             run([cli, "plugin", "marketplace", "remove", "cad-toolkit-local"], timeout=60)
             self.state["plugin_registered"] = False
         self.config.restore_originals(self.state["originals"])
-        self.state["active"] = {}; self.state["uninstalled_at"] = utc(); self.save()
+        target = self.state["active"].get("autocad") or (self.state.get("candidate") or {}).get("path")
+        if target:
+            from autocad_setup import remove_bundle
+            remove_bundle(target)
+        self.state["active"] = {}; self.state['auto_enable_pending'] = []; self.state["uninstalled_at"] = utc(); self.save()
         if os.name == "nt":
             import winreg
             try: winreg.DeleteKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Uninstall\CadToolkit")
             except FileNotFoundError: pass
             shortcut = Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs/CAD Toolkit.lnk"
             shortcut.unlink(missing_ok=True)
+            (shortcut.parent / "MCP Toolkit.lnk").unlink(missing_ok=True)
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run") as key:
+                try:
+                    command = winreg.QueryValueEx(key, "McpToolkit")[0]
+                    if str(self.root).lower() in command.lower():
+                        winreg.DeleteValue(key, "McpToolkit")
+                except FileNotFoundError:
+                    pass
         emit("已解除 Plugin 並還原舊設定。版本檔案與備份保留在安裝目錄，可在 CAD 關閉後手動刪除。")
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["preflight", "install", "configure_plugin", "configure_rhino", "diagnose", "activate", "rollback", "uninstall"])
+    parser.add_argument("action", choices=["preflight", "setup", "install", "configure_plugin", "configure_rhino", "configure_autocad", "diagnose", "activate", "rollback", "uninstall"])
     parser.add_argument("--root", default=str(Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "CadToolkit"))
     parser.add_argument("--components", default="autocad,inventor,rhino")
     parser.add_argument("--payload")
@@ -440,6 +507,7 @@ def main():
                 if marker.parent != manager.root: raise ValueError('取消標記必須位於安裝目錄')
                 manager.cancel_file = marker
             if args.action == "install": manager.install(args.payload, selected, args.setup, args.defer_plugin)
+            elif args.action == "setup": manager.setup(args.payload, selected, args.setup)
             elif args.action == "diagnose": manager.diagnose(selected, args.active)
             elif args.action == "activate": manager.activate(selected)
             else: getattr(manager, args.action)()

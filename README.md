@@ -1,58 +1,44 @@
-# CAD Toolkit
+# MCP Toolkit
 
-用中文一步一步設定，讓 Codex 協助你使用 **AutoCAD、Inventor、Rhino**。
+Windows 右下角的 MCP 管理程式，整合 **Rhino、AutoCAD、Inventor**。
 
-**[下載 Windows 安裝程式](https://github.com/allen2123231/cad-toolkit/releases/tag/v0.2.0-preview.3)** · **[第一次使用圖解](docs/getting-started.md)**
+點系統匣圖示查看小型狀態面板，需要時再開完整管理視窗。顯示目前文件、連線方式／端口、MCP 版本、安裝狀態與最近指令。
 
-適用 Windows x64／Codex 桌面環境。你需要自己的 CAD 授權；只使用其中一套也可以。無須自行安裝 Python、Git 或 .NET SDK。預留約 3 GB 空間。
+**[下載 Windows 預覽版](https://github.com/allen2123231/cad-toolkit/releases/tag/v0.3.0-preview.1)** · **[第一次使用](docs/getting-started.md)** · **[驗證範圍](docs/validation.md)**
 
-![CAD Toolkit 首次設定介面實際渲染](docs/images/welcome.png)
+<img src="docs/images/mcp-install.png" width="620" alt="MCP Toolkit 新安裝介面，實際 WPF 渲染，示範資料">
 
-## 只有第一次需要執行
+<img src="docs/images/mcp-tray.png" width="350" alt="MCP Toolkit 系統匣狀態面板，實際 WPF 渲染，示範資料">
 
-下載 `CadToolkitSetup.exe` 並開啟，依八步精靈操作：
+## 安裝
 
-**歡迎 → 選擇軟體 → 準備 AI 助手 → 安裝連線工具 → 設定 CAD → 安裝 Plugin → 確認可以使用 → 第一次練習**
+1. 下載並開啟 `McpToolkitSetup.exe`。
+2. 勾選要使用的 MCP，按「安裝所選 MCP」。環境、外掛與 Codex 工具設定一起完成。
+3. 開啟軟體；若安裝時 Rhino／AutoCAD 已開啟，先自行儲存並重新開啟一次。
+4. Toolkit 在連線檢查通過後自動啟用元件。到 Codex 開啟新對話，以自然語言提出需求。
 
-- 可以只安裝一套；有一套通過就能先使用。
-- 中途離開會記錄進度，已完成元件不必重做。
-- 教學內建於安裝程式，離線也能閱讀，附指令複製和檔案位置按鈕。
-- 舊的連線設定會先保留，通過診斷後再逐套啟用新工具。
+日常不需要輸入 `mcpstart`、`APPLOAD`，也不用拖曳 `.rhp`。首次仍需自己的 CAD 授權及 Codex 登入。
 
-詳見：[AI 助手](docs/codex.md) · [AutoCAD](docs/autocad.md) · [Inventor](docs/inventor.md) · [Rhino](docs/rhino.md)
+Windows x64，約 3 GB 空間。不需要自行安裝 Python、Git 或 .NET SDK；程式會使用 Codex 桌面應用程式內附的工具設定功能。
 
-## 本版安裝組合
+## 日常使用
 
-- AutoCAD MCP 3.2.0：包含中文圖層讀取修正與派送器自動載入。
-- RhinoMCP 0.5.2：Toolkit 按鈕安裝完整外掛，之後開啟 Rhino 自動連線，日常不必輸入 `mcpstart`。
-- Inventor：保留原有固定版本與首頁唯讀連線流程。
+- **小型面板**：三套 MCP 的狀態、文件、端口與相容版本。
+- **完整管理**：各套獨立安裝／修復、多 Rhino 目標選擇、最近指令、Windows 登入時啟動、還原／解除設定。
+- **背景監控**：每輪檢查有時間界限；未開啟、無文件、忙碌或未回應會分別顯示，不把歷史成功當作目前連線。
+- **自動連線**：Rhino 8 隨外掛啟動；AutoCAD 以每份圖面自動載入套件連線；Inventor MCP 自動附加正常開啟的 Inventor，避免 COM 冷啟動。
+- **本機紀錄**：只保存工具名稱、時間、成功／失敗與耗時；保留 7 天、最多 2,000 筆，不記錄參數、提示詞或完整輸出。
 
-## 每次使用
+AutoCAD 使用檔案 IPC、Inventor 使用 COM，兩者不虛構網路端口。版本顯示採 Toolkit 的固定相容組合，不代表各上游的即時最新版。既有獨立 MCP 可以唯讀檢查；完成 Toolkit 安裝及啟用的新對話才會有完整指令紀錄。
 
-1. 開啟 CAD；Inventor 可停在首頁，AutoCAD／Rhino 開啟要使用的文件。Rhino 文件準備好後會自動啟動橋接；AutoCAD 找不到 dispatcher 時會嘗試自動載入，必要時才使用 APPLOAD。
-2. 在 Toolkit 首頁重新檢查連線，依狀態卡片完成需要的操作。
-3. 到 Codex 新增對話，先貼上：
+## 預覽版範圍
 
-> 請確認目前連接的 CAD、文件名稱與單位，先不要修改文件。
+目前 **0.3.0-preview.1** 採全新安裝與常駐管理介面，不再使用舊八步精靈。包含 AutoCAD MCP 3.2.0、RhinoMCP 0.5.2、Inventor MCP 0.1.0。
 
-核對文件後再提出需求。第一次練習另建空白文件，不使用現有工作文件。
+MCP Toolkit 本身尚未簽章，完整乾淨 Windows 與真人新手驗收尚待完成。軟體登入、授權或公司外掛政策仍需使用者／管理員處理。程式不強制結束 CAD，也不降低 AutoCAD 安全設定。
 
-**安裝完成不等於已連線。** 歷史結果會標記時間；重新開啟不會把上次成功當成目前可用。
+離線安裝可把同版本 `cad-toolkit-payload.zip` 放在 EXE 旁。CAD 授權及帳號登入仍可能需要網路。
 
-## 更新與還原
+[開發文件](docs/development.md) · [本版更新](docs/release-0.3.0-preview.1.md)
 
-「檢查新版」頁 →「下載並準備更新」。更新只採用 Toolkit 已發布的測試組合，不追蹤各 MCP 的最新分支，也不在背景自動更新。
-
-「設定」頁提供還原、解除安裝與技術紀錄。舊版本與備份保留；載入中的 Rhino 外掛需自行保存並重新啟動後切換。程式不強制結束 CAD。
-
-## 預覽版限制
-
-目前版本 **0.2.0-preview.3**。實際 CAD GUI 全流程、乾淨 Windows、真實螢幕縮放與真人新手測試尚未全部完成，詳見 [驗收紀錄](docs/validation.md)。其他 CAD 版本未驗證。舊版 [0.1.0-preview.1](https://github.com/allen2123231/cad-toolkit/releases/tag/v0.1.0-preview.1) 繼續保留。
-
-## 開發與後續方向
-
-[開發文件](docs/development.md) · [本版更新內容](docs/release-0.2.0-preview.3.md) · [驗收紀錄](docs/validation.md)
-
-後續工作（尚未完成）：完整實機測試矩陣、真人新手可用性測試、多視窗目標選擇、其他 CAD 註冊流程簡化、安裝程式簽章，以及其他 AI 用戶端支援。
-
-Toolkit 與三套 MCP 分開維護。必要授權文件與著作權聲明隨套件保留。
+三套 MCP 分開維護：[Rhino](https://github.com/allen2123231/rhinomcp) · [AutoCAD](https://github.com/allen2123231/autocad-mcp) · [Inventor](https://github.com/allen2123231/inventor-mcp)。圖示及產品名稱屬各原權利人，必要授權文件隨套件保留。

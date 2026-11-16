@@ -1,5 +1,5 @@
 {
-  "version": "0.2.0-preview.3",
+  "version": "0.3.0-preview.1",
   "python": "3.12.11",
   "uv": "0.8.17",
   "components": {
@@ -8,6 +8,7 @@
       "commit": "8fdd2a25844a5f5b6460dd57132463d89b79e75d",
       "subdir": ".",
       "package": "autocad-mcp",
+      "package_version": "3.2.0",
       "module": "autocad_mcp",
       "process": "acad.exe"
     },
@@ -16,6 +17,7 @@
       "commit": "94c1aa0d49985d560ce505a76fe6851ee120c83a",
       "subdir": ".",
       "package": "inventor-mcp-server",
+      "package_version": "0.1.0",
       "module": "src.server",
       "process": "Inventor.exe"
     },
@@ -24,6 +26,7 @@
       "commit": "6ad258efaa49086c1a7747506564802e84f8d0d7",
       "subdir": "server",
       "package": "rhinomcp",
+      "package_version": "0.5.2",
       "entrypoint": "rhinomcp.exe",
       "process": "Rhino.exe",
       "plugin_asset": {

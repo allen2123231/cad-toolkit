@@ -16,7 +16,7 @@ def outputs():
         files['docs/'+image] = f'<svg xmlns="http://www.w3.org/2000/svg" width="740" height="344" viewBox="0 0 740 344"><rect width="740" height="344" fill="#ecf6f6"/><g font-family="Microsoft JhengHei, sans-serif" fill="#18313d"><text x="24" y="38" font-size="17">操作位置示意・非實際截圖</text>{labels}</g></svg>\n'
         lines = [f"# {g['title']}", '', g['purpose'], '', '## 操作位置', '', g['location'], '', g['version'], '']
         if key == 'rhino':
-            lines += ['![Toolkit Rhino 自動連線安裝頁實際渲染](images/rhino-autoconnect.png)', '']
+            lines += ['![MCP Toolkit 新安裝介面實際渲染](images/mcp-install.png)', '']
         if 'pages' in g:
             if 'first_time' in g:
                 lines += ['## 只有第一次或更新外掛時', ''] + [f'{i}. {text}' for i, text in enumerate(g['first_time'], 1)] + ['']
@@ -37,51 +37,7 @@ def outputs():
         if key == 'codex': lines += ['', '[官方下載與入門](https://learn.chatgpt.com/docs/quickstart)']
         lines += ['', '[回第一次使用](getting-started.md)', '']
         files[f'docs/{key}.md'] = '\n'.join(lines)
-    files['docs/getting-started.md'] = '''# 第一次使用 CAD Toolkit
-
-## 先準備
-
-Windows x64、自己的 AutoCAD／Inventor／Rhino 8 授權、網路及約 3 GB 可用空間。只需要其中一套 CAD。
-
-1. 到 [下載頁](https://github.com/allen2123231/cad-toolkit/releases/tag/v0.2.0-preview.1) 取得 `CadToolkitSetup.exe`。
-2. 開啟 EXE。七步精靈會記住進度，下次可繼續。只勾選要使用的軟體。
-3. 依 [AI 助手圖解](codex.md) 完成桌面應用程式安裝、登入及 Codex 對話入口。
-4. 按「安裝並繼續」，等待下載、驗證與工具安裝。中斷時已完成的元件會保留。
-5. 按你使用的軟體閱讀（Rhino 在本頁按鈕安裝自動連線外掛，再開啟／重開 Rhino）：[AutoCAD](autocad.md)／[Inventor](inventor.md)／[Rhino](rhino.md)。圖解也已內建於 EXE，可離線閱讀。
-6. 在「確認可以使用」逐套重新檢查，再按「啟用這套工具」。通過一套就能先使用，其他套可以稍後設定。
-7. 在 Codex 新增本機對話，貼上下方唯讀指令。核對 AI 實際讀取的文件與 CAD 分頁名稱相同，再按「我已核對唯讀結果」。
-
-> '''+data['readonly_prompt']+'''
-
-如果 AI 只提供一般操作教學，沒有實際讀取文件，不算成功。回第 6 步檢查連線與啟用狀態。
-
-## 每次使用
-
-1. 開啟 CAD 與要使用的文件。
-2. Rhino 文件準備好後會自動啟動橋接；AutoCAD 會嘗試自動載入 dispatcher；Inventor 開啟正確分頁。
-3. 在 Toolkit 首頁重新檢查，再到 Codex 新增對話，先執行唯讀指令。
-4. 確認文件後才提出建模需求。另建空白文件做練習，不使用工作文件。
-
-歷史成功紀錄不代表目前已連線。切換文件、重啟 CAD 或開多個程序後都要重新確認。
-
-## 更新、還原與解除安裝
-
-首頁「檢查新版」只尋找 Toolkit 已發布的版本。不在背景自動更新。
-下載並更新會先建立新環境，再引導你檢查及逐套啟用。失敗保留原有設定。
-「設定」內提供還原及解除安裝。Rhino 載入外掛時需自行保存、重新啟動後再切换；不會強制結束 CAD。
-解除安裝保留版本與備份，只移除 Toolkit 管理的項目。安裝路徑在設定頁可開啟。
-
-## 沒有網路時
-
-預先下載同一版本的 EXE 和 `cad-toolkit-payload.zip`，放在同一個資料夾再啟動。
-教學隨 EXE 提供；CAD 授權與 ChatGPT 登入仍可能需要網路。
-
-## 尚未實測的部分
-
-完整乾淨 Windows、實際 CAD GUI 全流程及真人新手測試尚未完成；詳見 [驗收紀錄](validation.md)。
-'''
-    version = json.loads((ROOT / 'sources.json').read_text(encoding='utf-8'))['version']
-    files['docs/getting-started.md'] = files['docs/getting-started.md'].replace('v0.2.0-preview.1', 'v'+version).replace('七步精靈', '八步精靈').replace('6. 在「確認可以使用」', '6. 在「安裝 Plugin」按安裝，再到「確認可以使用」').replace('回第 6 步', '回「確認可以使用」').replace('Inventor 開啟正確分頁', 'Inventor 可以停留首頁；有文件時確認正確分頁').replace('切换', '切換')
+    files['docs/getting-started.md'] = '# 第一次使用 MCP Toolkit\n\n1. 開啟 `McpToolkitSetup.exe`，勾選 Rhino、AutoCAD 或 Inventor MCP。\n2. 按「安裝所選 MCP」。程式會準備必要環境、自動連線套件及 Codex 工具設定。\n3. 若安裝時 Rhino／AutoCAD 已開啟，先自行儲存工作並重新開啟一次。Inventor 可以停在首頁。\n4. 點右下角 MCP Toolkit 圖示，等待顯示「可以使用」。工具會在通過連線檢查後自動啟用。\n5. 到 Codex 開啟新對話，以自然語言提出需求。先核對軟體與目前文件，再進行建模。\n\n不需要輸入 `mcpstart`、`APPLOAD`，也不用拖曳 `.rhp`。首次仍需要安裝自己的 CAD 軟體、完成合法授權及 Codex 登入。\n\n## 每次使用\n\n開啟要使用的軟體與文件即可。Toolkit 在背景自動檢查；點系統匣圖示查看小面板，按「完整管理」查看所有設定。\n關閉管理視窗會縮到系統匣。要完整結束，右鍵圖示選「結束 MCP Toolkit」。Windows 登入時自動啟動可在設定中開啟。\n\n## 狀態與指令\n\n- Rhino 顯示實際 TCP 端口；AutoCAD 顯示檔案 IPC；Inventor 顯示 COM，後兩者沒有網路端口。\n- 多個 Rhino 時先在完整管理視窗選取目標，再到 Codex 開啟新對話。\n- 最近指令只記錄 Toolkit 管理的 MCP 新對話，保留最近 7 天，不記錄參數、提示詞或完整輸出。\n- 「符合 Toolkit 相容版本」表示與固定測試組合一致，不代表網路上沒有其他新版。\n\n## 安裝、修復與解除安裝\n\n「安裝與版本」可分別安裝或修復三套 MCP，連線設定會一起完成。更新採用 Toolkit 的相容組合，不追蹤各 MCP 最新分支。\n「設定」提供還原及解除安裝；CAD 本體、工作文件、無關設定與備份會保留。載入中的外掛可能需要自行儲存並重開軟體。\n\n沒有網路時，把同版本的 EXE 與 `cad-toolkit-payload.zip` 放在同一個資料夾。CAD 授權及帳號登入可能仍需要網路。\n\n實際驗證範圍與限制見 [驗收紀錄](validation.md)。\n'
     return files
 
 if __name__ == '__main__':

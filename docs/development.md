@@ -1,23 +1,25 @@
 # 開發與發布
 
-## 結構
+0.3 使用新安裝視窗及常駐程式，舊八步 WPF 精靈不再編入 EXE。CAD 檔案與原有設定保留，安裝交易仍共用生命週期後端。
 
-- `content/guides.json`：安裝程式與 GitHub 教學共用文字、真實截圖步驟與練習。
-- `scripts/build_guides.py`：產生文件與 SVG；`--check` 確認沒有內容漂移。
-- `installer/SetupWindow.cs`：視窗導覽與長作業狀態。
-- `installer/WizardPages.cs`、`Dashboard.cs`：首次設定、教學與日常卡片。
-- `installer/ExperienceState.cs`：UI 進度、安裝狀態讀取與環境偵測。
-- `installer/ToolkitService.cs`：下載、驗證、後端事件與更新。
-- `engine/manager.py`：原有 CLI 安裝／診斷／啟用／還原／解除安裝介面。
-- `engine/experience.py`：穩定診斷代碼、結果與可執行提示。
-- `engine/rhino_setup.py`：驗證固定 `.yak`，使用 Rhino 8 自帶的 Yak 安裝原生外掛；`configure_rhino` 為獨立 CAD 設定步驟。
-- `sources.json`、`locks/`：來源 commit 與依賴完整鎖版。
+## 程式結構
 
-三套 MCP 工具名稱與參數未改動：[AutoCAD](https://github.com/allen2123231/autocad-mcp)、[Inventor](https://github.com/allen2123231/inventor-mcp)、[Rhino](https://github.com/allen2123231/rhinomcp)。
+- `installer/ToolkitApplication.cs`：單一實例、系統匣、視窗及結束生命週期。
+- `InstallWindow.cs`：選擇 MCP、安裝進度、完成／重試。一次 setup 完成外掛與 Plugin 設定。
+- `ManagerWindow.cs`、`TrayPanel.cs`：完整管理及小型狀態面板。
+- `RuntimeHost.cs`：從封裝資源取得後端、執行有界狀態檢查及安裝後自動啟用。
+- `ToolkitVisuals.cs`：插頭標誌、設定齒輪及軟體／文件原生圖示。
+- `engine/runtime.py`、`native_status.py`：唯讀狀態與程序隔離，背景檢查不啟動 CAD。
+- `engine/rhino_instances.py`：以 PID 及建立時間驗證實例，目標存於 targets.json。
+- `engine/relay.py`、`history.py`：透明 stdio 訊息轉送及 SQLite 命令收據，最多 2,000 筆、7 天。
+- `engine/inventor_session.py`：包裝固定 Inventor 服務，僅附加現有實例，不以 COM 建立應用程式。
+- `engine/autocad_setup.py`：使用者層級 ApplicationPlugins 套件，PerDocument=True。
+- `engine/manager.py`：setup／install／diagnose／activate／rollback／uninstall。setup 把成功設定的元件列入 auto_enable_pending，通過橋接檢查後才啟用。
+- `sources.json`、`locks/`：固定來源與套件依賴。相容版本使用套件 metadata，不把 SDK 的 serverInfo.version 當套件版本。
 
 ## 建置
 
-開發機需要 Windows、Python 3.12+ 與 .NET 8 SDK；使用者不需要。
+開發機需要 Windows、Python 3.12+、.NET 8 SDK；使用者不需要開發工具。
 
 ```powershell
 python -m pip install tomlkit==0.13.3
@@ -25,34 +27,17 @@ python scripts/create_content.py
 python scripts/build_guides.py
 python -m unittest discover -s tests -v
 python scripts/build_payload.py
+dotnet run --project tests/desktop/DesktopChecks.csproj -c Release -- test-results/desktop
 dotnet publish installer/CadToolkitSetup.csproj -c Release -o dist/setup
 python scripts/finalize_release.py
 ```
 
-僅當刻意更新依賴時使用 `build_payload.py --refresh-locks`。相同來源 commit 與 runtime 可使用 `repack_payload.py` 更新應用內容；此腳本會拒絕來源／runtime 改動。
+來源、原生套件及 runtime 沒有改變時可使用 `scripts/repack_payload.py` 更新後端與文件。輸出 `McpToolkitSetup.exe`、`McpToolkit.exe`、`cad-toolkit-payload.zip`、release-manifest.json 及 SHA256SUMS.txt。兩個 EXE 使用相同程式；首次安裝或傳入 `--setup` 會開新安裝視窗，安裝後預設進入管理視窗。`--background` 只開系統匣。
 
-GitHub Actions 會驗證內容一致性、執行測試、建置獨立環境、核對固定 Rhino 外掛安裝包、產生自包含 EXE 與 SHA-256。`v*` 標籤發布同版本 Release。Rhino 外掛的來源、版本、下載網址與雜湊由 `sources.json` 管理，與 Python 來源配對。
+## 驗證
 
-## 事件與狀態
+`scripts/smoke_install.py` 以隔離 CODEX_HOME 執行七種真實安裝組合、重複安裝與中斷續作，保留使用者 Codex 設定。不啟用元件或呼叫 CAD。介面測試使用 fixture 狀態，真實 CAD 驗證範圍另記於 validation.md。
 
-標準輸出為逐行 JSON：`schema`、`step`、`component`、`outcome`、`progress`、`error_code`、`next_action`、`message`。診斷保留原有 `result`，另加 `code`、`ready`、`enabled`、`checked_at`。
+公開圖片使用 fixture 文件名稱，不含使用者文件或帳號。原生圖示來源位於 installer/assets/icons/README.md；齒輪授權位於 installer/assets/lucide-LICENSE.txt 並嵌入 EXE。
 
-`outcome=needs_action` 不是成功。CLI `diagnose` 正常完成讀取時仍可能回傳 0；呼叫端必須看元件的 `ready`／`code`，不能只看程序結束碼。
-
-`state.json` 沿用 schema 1。UI schema 2 會將舊版第 6、7 步遷移到新增 Plugin 步驟之後。新 UI 狀態另存 `ui-state.json`，不覆寫原本安裝／啟用／備份結構。啟動時核對元件檔案與版本，所有即時連線檢查均重新建立。顯示的就緒結果有檢查時間，5 分鐘後要求重查；切換文件應立即重查。
-
-下載以 CancellationToken 停止並清除本次 `.part`。安裝透過 `--cancel-file` 合作式停止，在安全邊界檢查標記；個別 `*.complete.json` 記錄已完成環境。設定交易發出 `cancellable=false`，介面暫時停用取消。
-
-## 畫面驗證
-
-`CadToolkitSetup.exe --render-preview=絕對路徑.png --page=0 --root=隔離路徑` 可渲染測試介面。頁面為 `0` 到 `7`、`home`、`guides`、`settings`、`updates`、`restore`、`uninstall`、`help`、`complete`；`--size=640x540` 指定邏輯尺寸；`--dpi=144` 或 `192` 測試高密度點陣輸出。這不等同真實 Windows DPI 切換測試。
-
-CAD 教學使用去除個人資訊後的真實截圖；Codex 入門目前以文字和示意補充。公開畫面禁止含個人文件名稱或路徑。新增畫面或狀態時，應重新驗證鍵盤焦點、文字換行與底部主要操作可及性。
-
-## 0.2.0-preview.2 流程分離
-
-GUI 使用 `install --defer-plugin` 準備元件，再於獨立頁呼叫 `configure_plugin`。舊 CLI `install` 預設行為保持相容。`plugin_candidate_path` 記錄已註冊的候選組合；啟用仍重新執行實際診斷。
-
-Inventor 無文件時，只有確認 COM `hwnd`、`version` 與橋接成功才可啟用；模型操作仍需另外建立或選取文件。
-
-圖片位於 `docs/images/guides/` 並嵌入 EXE。`content/guides.json` 同時驅動 WPF 分頁及 GitHub 圖文。原尺寸檢視不放大重繪圖片。
+AutoCAD 套件格式依 [Autodesk Components 參考](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Customization/files/GUID-3C25E517-8660-4BB7-9447-2310462EF06F.htm)，不降低 SECURELOAD／TRUSTEDPATHS。無法載入時由使用者／管理員處理。

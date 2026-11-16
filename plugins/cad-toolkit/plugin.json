@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "cad-toolkit",
-  "version": "0.2.0-preview.3",
+  "version": "0.3.0-preview.1",
   "description": "AutoCAD、Inventor、Rhino 整合工具與中文工作流程",
   "author": {
     "name": "allen2123231"
@@ -11,7 +11,7 @@
   "extensions": {
     "com.openai": {
       "interface": {
-        "displayName": "CAD Toolkit",
+        "displayName": "MCP Toolkit",
         "shortDescription": "AutoCAD、Inventor、Rhino 整合工具與中文工作流程",
         "longDescription": "搭配 Windows 安裝程式管理三套 CAD MCP、獨立執行環境及六套中文 Skills。",
         "developerName": "allen2123231",
