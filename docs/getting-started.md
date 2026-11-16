@@ -4,11 +4,11 @@
 
 Windows x64、自己的 AutoCAD／Inventor／Rhino 8 授權、網路及約 3 GB 可用空間。只需要其中一套 CAD。
 
-1. 到 [下載頁](https://github.com/allen2123231/cad-toolkit/releases/tag/v0.2.0-preview.2) 取得 `CadToolkitSetup.exe`。
+1. 到 [下載頁](https://github.com/allen2123231/cad-toolkit/releases/tag/v0.2.0-preview.3) 取得 `CadToolkitSetup.exe`。
 2. 開啟 EXE。八步精靈會記住進度，下次可繼續。只勾選要使用的軟體。
 3. 依 [AI 助手圖解](codex.md) 完成桌面應用程式安裝、登入及 Codex 對話入口。
 4. 按「安裝並繼續」，等待下載、驗證與工具安裝。中斷時已完成的元件會保留。
-5. 按你使用的軟體閱讀：[AutoCAD](autocad.md)／[Inventor](inventor.md)／[Rhino](rhino.md)。圖解也已內建於 EXE，可離線閱讀。
+5. 按你使用的軟體閱讀（Rhino 在本頁按鈕安裝自動連線外掛，再開啟／重開 Rhino）：[AutoCAD](autocad.md)／[Inventor](inventor.md)／[Rhino](rhino.md)。圖解也已內建於 EXE，可離線閱讀。
 6. 在「安裝 Plugin」按安裝，再到「確認可以使用」逐套重新檢查，再按「啟用這套工具」。通過一套就能先使用，其他套可以稍後設定。
 7. 在 Codex 新增本機對話，貼上下方唯讀指令。核對 AI 實際讀取的文件與 CAD 分頁名稱相同，再按「我已核對唯讀結果」。
 
@@ -19,7 +19,7 @@ Windows x64、自己的 AutoCAD／Inventor／Rhino 8 授權、網路及約 3 GB 
 ## 每次使用
 
 1. 開啟 CAD 與要使用的文件。
-2. Rhino 在指令列執行 `mcpstart`；AutoCAD 確認已載入 Toolkit 的 dispatcher；Inventor 可以停留首頁；有文件時確認正確分頁。
+2. Rhino 文件準備好後會自動啟動橋接；AutoCAD 會嘗試自動載入 dispatcher；Inventor 可以停留首頁；有文件時確認正確分頁。
 3. 在 Toolkit 首頁重新檢查，再到 Codex 新增對話，先執行唯讀指令。
 4. 確認文件後才提出建模需求。另建空白文件做練習，不使用工作文件。
 

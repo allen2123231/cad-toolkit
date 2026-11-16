@@ -15,7 +15,7 @@ public sealed partial class SetupWindow
             var diagram=new WrapPanel();welcome.Children.Add(diagram);
             foreach(var text in new[]{"✦  AI 助手\n在 Codex 說出需求","⇄  CAD Toolkit\n連線工具與操作教學","▧  你的 CAD\n查看文件、繪圖與建模"})diagram.Children.Add(new Border{Background=Mint,CornerRadius=new CornerRadius(10),Padding=new Thickness(18),Margin=new Thickness(0,8,10,8),Child=T(text,16,true)});
             Card(body,"只有第一次","勾選軟體 → 安裝工具 → 完成 CAD 端設定 → 安裝 Plugin → 檢查並逐套啟用。");
-            Card(body,"每次使用","開啟 CAD，依軟體啟動連線，再先確認目前文件與單位。Inventor 可以先停在首頁。");
+            Card(body,"每次使用","開啟 CAD，再確認目前文件與單位。Rhino 自動連線；AutoCAD 會嘗試自動載入連線工具；Inventor 可以先停在首頁。");
             Notice(body,"先準備","Windows x64、至少一套已啟用的 CAD、可登入的 ChatGPT 帳號、網路與約 3 GB 空間。中途離開會記錄進度。");
             Button(footer,"開始設定 →",()=>Go(1),true);break;
         case 1:
@@ -47,7 +47,7 @@ public sealed partial class SetupWindow
             Button(footer,"安裝並繼續 →",Install,true).IsEnabled=!busy&&Selected.Length>0;
             if(Selected.Length>0&&Selected.All(Installed)&&ExperienceState.Text(Candidate,"version")==service.Version)Button(body,"元件已備妥，繼續 CAD 設定",()=>Go(4));break;
         case 4:
-            body.Children.Add(T("依照每套軟體的真實截圖操作；暫時無法完成的項目可以稍後處理。"));
+            body.Children.Add(T("依照下方教學完成設定；暫時無法完成的項目可以稍後處理。"));
             var tabs=new WrapPanel();body.Children.Add(tabs);if(!Selected.Contains(guideId))guideId=Selected.FirstOrDefault()??"autocad";
             foreach(var id in Selected)Button(tabs,ExperienceState.Names[id],()=>{guideId=id;return Task.CompletedTask;},id==guideId);
             Guide(body,guideId);GuideActions(body,guideId);
@@ -77,13 +77,19 @@ public sealed partial class SetupWindow
         }
         var pages=g.GetProperty("pages").EnumerateArray().ToArray();int index=Math.Clamp(state.GuideSteps.GetValueOrDefault(id),0,pages.Length-1);
         var panel=Card(parent,g.GetProperty("title").GetString()!,g.GetProperty("purpose").GetString());
+        if(id=="rhino"){
+            var actions=new WrapPanel();panel.Children.Add(actions);
+            Button(actions,"安裝 Rhino 自動連線外掛",()=>InstallRhino(),true).IsEnabled=!busy&&Installed(id);
+            Button(actions,"開啟 Rhino",()=>{var path=state.Paths.GetValueOrDefault("rhino")??ExperienceState.Detect("rhino");if(path==null)throw new InvalidOperationException("請先安裝 Rhino 8，或回選擇軟體頁指定位置。");Open(path);return Task.CompletedTask;});
+            Button(actions,"檢查連線",()=>Diagnose("rhino")).IsEnabled=!busy&&Installed(id);
+        }
         if(g.TryGetProperty("first_time",out var initial)){
-            var first=new StackPanel();foreach(var item in initial.EnumerateArray())first.Children.Add(T(item.GetString()!,14));panel.Children.Add(new Expander{Header="只有第一次需要：註冊 RhinoMCP 外掛",Content=first,Margin=new Thickness(0,8,0,12)});
+            var first=new StackPanel();foreach(var item in initial.EnumerateArray())first.Children.Add(T(item.GetString()!,14));panel.Children.Add(new Expander{Header="首次安裝與升級 Rhino 外掛",Content=first,Margin=new Thickness(0,8,0,12)});
         }
         var tabs=new WrapPanel();panel.Children.Add(tabs);for(int i=0;i<pages.Length;i++){int n=i;Button(tabs,$"{i+1}  {pages[i].GetProperty("title").GetString()}",()=>{state.GuideSteps[id]=n;return Task.CompletedTask;},i==index);}
         var step=pages[index];panel.Children.Add(T($"第 {index+1} 步，共 {pages.Length} 步",12,true));panel.Children.Add(T(step.GetProperty("title").GetString()!,23,true));panel.Children.Add(T("操作位置："+step.GetProperty("location").GetString(),13,true));panel.Children.Add(T(step.GetProperty("text").GetString()!));
         string command=ExperienceState.Text(step,"command");if(command.Length>0)Button(panel,"複製指令："+command,()=>Copy(command));
-        ShowGuideImage(panel,step.GetProperty("image").GetString()!,step.GetProperty("caption").GetString()!);
+        if(ExperienceState.Text(step,"image").Length>0)ShowGuideImage(panel,step.GetProperty("image").GetString()!,step.GetProperty("caption").GetString()!);
         Notice(panel,"完成後，你應該看到",step.GetProperty("success").GetString()!);
         var row=new WrapPanel();panel.Children.Add(row);
         if(index>0)Button(row,"← 上一步",()=>{state.GuideSteps[id]=index-1;return Task.CompletedTask;});
@@ -97,10 +103,12 @@ public sealed partial class SetupWindow
     }
     string? CadFile(string id){var target=Target(id)??Target(id,true);return target==null?null:id switch{"autocad"=>Path.Combine(target,"autocad/mcp_dispatch.lsp"),"rhino"=>Path.Combine(target,"payload/cad/rhino/rhinomcp.rhp"),_=>null};}
     void GuideActions(Panel parent,string id){
+        if(id=="rhino")return;
         var c=Card(parent,"回到 Toolkit，確認這一步");var row=new WrapPanel();c.Children.Add(row);
-        if(id!="inventor"){var file=CadFile(id);c.Children.Add(T(file??"請先完成連線工具安裝。",12));Button(row,"開啟檔案位置",()=>{if(file==null||!File.Exists(file))throw new InvalidOperationException("請先安裝連線工具。");Open(Path.GetDirectoryName(file)!);return Task.CompletedTask;});Button(row,"複製完整路徑",()=>file==null?throw new InvalidOperationException("請先安裝連線工具。"):Copy(file));}
+        if(id=="autocad"){var file=CadFile(id);c.Children.Add(T(file??"請先完成連線工具安裝。",12));Button(row,"開啟檔案位置",()=>{if(file==null||!File.Exists(file))throw new InvalidOperationException("請先安裝連線工具。");Open(Path.GetDirectoryName(file)!);return Task.CompletedTask;});Button(row,"複製完整路徑",()=>file==null?throw new InvalidOperationException("請先安裝連線工具。"):Copy(file));}
         Button(row,"檢查這一步",()=>Diagnose(id),true);c.Children.Add(T("只讀取應用程式、橋接與文件狀態，不修改、儲存或關閉文件。",12));
     }
+    async Task InstallRhino(){await Work("正在安裝 Rhino 自動連線外掛",async()=>await service.Engine("configure_rhino",new[]{"rhino"},rhinoExe:state.Paths.GetValueOrDefault("rhino")??ExperienceState.Detect("rhino")));}
     void GuidePage(){Header("離線教學","依真實畫面，一步一步操作","教學已內建於程式，取得軟體與帳號登入仍需官方網頁。");var row=new WrapPanel();body.Children.Add(row);foreach(var id in new[]{"codex","autocad","inventor","rhino"})Button(row,id=="codex"?"AI 助手":ExperienceState.Names[id],()=>{guideId=id;return Task.CompletedTask;},guideId==id);Guide(body,guideId);if(guideId!="codex")GuideActions(body,guideId);}
     void Practice(){
         var c=Card(body,"先完成一次唯讀操作","到 Codex 新增對話，貼上這段文字，核對 AI 實際讀到的狀態。");c.Children.Add(T(guides.GetProperty("readonly_prompt").GetString()!,18,true));Button(c,"複製唯讀指令",()=>Copy(guides.GetProperty("readonly_prompt").GetString()!),true);

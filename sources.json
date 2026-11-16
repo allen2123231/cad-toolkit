@@ -1,11 +1,11 @@
 {
-  "version": "0.2.0-preview.2",
+  "version": "0.2.0-preview.3",
   "python": "3.12.11",
   "uv": "0.8.17",
   "components": {
     "autocad": {
       "repo": "allen2123231/autocad-mcp",
-      "commit": "6759a5054c60f1a36c2ed4bc13268395248f6a43",
+      "commit": "8fdd2a25844a5f5b6460dd57132463d89b79e75d",
       "subdir": ".",
       "package": "autocad-mcp",
       "module": "autocad_mcp",
@@ -21,11 +21,16 @@
     },
     "rhino": {
       "repo": "allen2123231/rhinomcp",
-      "commit": "48ab20ca3174065a2c713d34d9818f012deef47a",
+      "commit": "6ad258efaa49086c1a7747506564802e84f8d0d7",
       "subdir": "server",
       "package": "rhinomcp",
       "entrypoint": "rhinomcp.exe",
-      "process": "Rhino.exe"
+      "process": "Rhino.exe",
+      "plugin_asset": {
+        "version": "0.5.2",
+        "url": "https://github.com/allen2123231/rhinomcp/releases/download/v0.5.2/rhinomcp-0.5.2-rh8_17-any.yak",
+        "sha256": "e2200c0e753d73814cac6d13979ded5ca8304d155cb01804169b69ed480a33bb"
+      }
     }
   }
 }

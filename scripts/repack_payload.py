@@ -12,6 +12,8 @@ for folder in ("engine", "plugins", "docs"):
 manifest = read_json(payload / "bundle.json")
 sources = read_json(ROOT / "sources.json")
 assert all(manifest['components'][c]['commit'] == spec['commit'] for c, spec in sources['components'].items()), 'Changed MCP sources require build_payload.py'
+assert all(manifest['components'][c].get('plugin_asset') == spec.get('plugin_asset') for c, spec in sources['components'].items()), 'Changed native plugin requires build_payload.py'
+assert all(sha256(ROOT/'locks'/f'{c}.txt') == sha256(payload/'locks'/f'{c}.txt') for c in sources['components']), 'Changed dependency locks require build_payload.py'
 assert manifest['python'] == sources['python'] and manifest['uv'] == sources['uv'], 'Changed runtime requires build_payload.py'
 manifest['version'] = sources['version']
 manifest["files"] = {p.relative_to(payload).as_posix(): sha256(p) for p in sorted(payload.rglob("*"))

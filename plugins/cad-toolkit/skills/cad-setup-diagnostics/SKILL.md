@@ -7,7 +7,7 @@ description: 檢查 CAD Toolkit 安裝、AutoCAD／Inventor／Rhino MCP 連線�
 
 先區分「已安裝」「MCP 可啟動」「CAD 已開啟」「橋接已連線」。工具沒有出現在對話中，不等於未安裝；檢查 Plugin 是否啟用，必要時在新對話驗證。
 
-只有第一次需要執行安裝精靈、註冊 Rhino 外掛及設定 AutoCAD LISP。每次使用時開啟 CAD；Rhino 執行 `mcpstart`，AutoCAD 確認已載入 `mcp_dispatch.lsp`，Inventor 重新確認 COM 連線。
+首次以安裝精靈準備元件，並用 Toolkit 的按鈕安裝 Rhino 外掛。RhinoMCP 0.5.2 隨 Rhino 開啟與文件準備好後自動啟動；版本不符時先確認已安裝新版，再由使用者儲存並重開 Rhino。AutoCAD 先檢查自動載入，載入受阻或舊派送器仍在回應時才以 APPLOAD 載入指定檔案。Inventor 重新確認 COM 連線。
 
 使用安裝管理程式的唯讀診斷。AutoCAD 必須是 `file_ipc` 並能讀取圖面資訊；離線 `ezdxf` 不能代表實機連線。Python 與 LISP 的 IPC 路徑必須相同。
 

@@ -95,6 +95,17 @@ class UiChecks
                     await closed.Task;Assert(File.Exists(png)&&new FileInfo(png).Length>1000,"Rendered "+png);
                     screens.Add(new{page,dpi,size});
                 }
+                var rhinoRoot=Path.Combine(output,"rhino-guide");Directory.CreateDirectory(rhinoRoot);
+                new ExperienceState{Step=4,Selected=new[]{"rhino"}}.Save(rhinoRoot);
+                var rhinoPng=Path.Combine(output,"rhino-autoconnect-96.png");
+                var rhinoWindow=new SetupWindow(new[]{"--root="+rhinoRoot,"--page=4","--render-preview="+rhinoPng});
+                rhinoWindow.ShowActivated=false;var rhinoClosed=new TaskCompletionSource();rhinoWindow.Closed+=(_,_)=>rhinoClosed.SetResult();rhinoWindow.Show();rhinoWindow.UpdateLayout();
+                var labels=Descendants<Button>(rhinoWindow).Select(b=>(b.Content as TextBlock)?.Text??b.Content?.ToString()??"").ToArray();
+                Assert(labels.Contains("安裝 Rhino 自動連線外掛"),"Rhino guide offers package installation");
+                Assert(!labels.Any(t=>t.Contains("複製指令：mcpstart")),"Rhino guide does not require a manual start command");
+                Assert(!labels.Contains("複製完整路徑"),"Rhino users do not need to register an rhp path");
+                await rhinoClosed.Task;Assert(File.Exists(rhinoPng),"Rhino auto-connect guide rendered");
+                screens.Add(new{page="rhino-auto",dpi=96,size="1180x820"});
                 File.WriteAllText(Path.Combine(output,"report.json"),JsonSerializer.Serialize(new{passed=true,assertions,screens,scope="WPF layout/render and focusability; not physical monitor DPI or human testing"}));
                 Console.WriteLine($"UI checks passed: {assertions} assertions, {screens.Count} screens");app.Shutdown(0);
             }catch(Exception e){File.WriteAllText(Path.Combine(output,"report.json"),JsonSerializer.Serialize(new{passed=false,error=e.ToString()}));Console.Error.WriteLine(e);app.Shutdown(1);}

@@ -235,6 +235,20 @@ class Manager:
         self.register_plugin(self.state['active'], candidate['path'], set(self.state['active']))
         emit('Plugin 已安裝。新元件保持停用，請先逐套檢查連線。', step='plugin', outcome='completed')
 
+    def configure_rhino(self):
+        from rhino_setup import install_plugin
+        candidate = self.state.get('candidate')
+        if not candidate or 'rhino' not in candidate.get('selected', []) or not (Path(candidate['path']) / 'ready.json').exists():
+            raise RuntimeError('請先完成 Rhino 連線工具安裝。')
+        self.checkpoint()
+        emit('正在安裝 Rhino 自動連線外掛，完成前請勿關閉。', step='configure_rhino', component='rhino', cancellable=False)
+        result = install_plugin(candidate['path'], getattr(self, 'rhino_exe', None))
+        result.update(restart_required=bool(processes('Rhino.exe')), installed_at=utc())
+        atomic_json(Path(candidate['path']) / 'rhino-plugin.json', result)
+        message = ('外掛已安裝。請自行儲存工作並重新開啟 Rhino，新版會自動連線。'
+                   if result['restart_required'] else '外掛已安裝。現在開啟 Rhino，文件準備好後會自動連線。')
+        emit(message, step='configure_rhino', component='rhino', outcome='completed', result=result)
+
     def register_windows(self, setup):
         if os.name != "nt": return
         import winreg
@@ -405,11 +419,12 @@ class Manager:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["preflight", "install", "configure_plugin", "diagnose", "activate", "rollback", "uninstall"])
+    parser.add_argument("action", choices=["preflight", "install", "configure_plugin", "configure_rhino", "diagnose", "activate", "rollback", "uninstall"])
     parser.add_argument("--root", default=str(Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "CadToolkit"))
     parser.add_argument("--components", default="autocad,inventor,rhino")
     parser.add_argument("--payload")
     parser.add_argument("--setup")
+    parser.add_argument("--rhino-exe")
     parser.add_argument("--defer-plugin", action="store_true", help="Prepare components; register Plugin in a separate step")
     parser.add_argument("--active", action="store_true")
     parser.add_argument("--cancel-file")
@@ -419,6 +434,7 @@ def main():
     try:
         with install_lock(args.root):
             manager = Manager(args.root)
+            manager.rhino_exe = args.rhino_exe
             if args.cancel_file:
                 marker = Path(args.cancel_file).resolve()
                 if marker.parent != manager.root: raise ValueError('取消標記必須位於安裝目錄')

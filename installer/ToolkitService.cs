@@ -100,7 +100,7 @@ public sealed class ToolkitService
         return destination;
     }
 
-    public async Task<List<JsonElement>> Engine(string action, string[] components, bool active = false)
+    public async Task<List<JsonElement>> Engine(string action, string[] components, bool active = false, string? rhinoExe = null)
     {
         string selected = string.Join(",", components);
         var events = new List<JsonElement>();
@@ -118,6 +118,7 @@ public sealed class ToolkitService
             start.ArgumentList.Add("--defer-plugin");
         }
         if (active) start.ArgumentList.Add("--active");
+        if (!string.IsNullOrEmpty(rhinoExe)) { start.ArgumentList.Add("--rhino-exe"); start.ArgumentList.Add(rhinoExe); }
         start.ArgumentList.Add("--cancel-file"); start.ArgumentList.Add(CancelFile);
         if (File.Exists(CancelFile)) File.Delete(CancelFile);
         Token.ThrowIfCancellationRequested();

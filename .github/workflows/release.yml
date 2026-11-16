@@ -34,7 +34,7 @@ jobs:
           dotnet publish installer/CadToolkitSetup.csproj -c Release -o dist/setup
           python scripts/finalize_release.py
       - name: 檢查 WPF 畫面與精靈狀態
-        run: dotnet run --project tests/ui/UiChecks.csproj -c Release -- test-results/ui
+        run: dotnet run --project tests/ui/UiChecks.csproj -c Release -- test-results/ui --payload
       - uses: actions/upload-artifact@v4
         with:
           name: cad-toolkit-windows

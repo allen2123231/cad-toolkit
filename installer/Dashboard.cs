@@ -49,7 +49,7 @@ public sealed partial class SetupWindow
         else Button(row,"重新檢查",()=>Diagnose(id,active&&HasActive(id)),true);
         if(code!="NOT_INSTALLED"&&code!="READY")Button(row,"查看圖解",()=>{guideId=id;return Navigate("guides");});
         if(code=="CAD_NOT_RUNNING")Button(row,"開啟 "+ExperienceState.Names[id],()=>{var path=state.Paths.GetValueOrDefault(id)??ExperienceState.Detect(id);if(path==null)throw new InvalidOperationException("找不到 CAD，請到選擇軟體頁指定位置。");Open(path);return Task.CompletedTask;});
-        if(code=="BRIDGE_NOT_CONNECTED"&&id=="rhino")Button(row,"複製 mcpstart",()=>Copy("mcpstart"));
+        if(id=="rhino"&&(code=="BRIDGE_NOT_CONNECTED"||code=="VERSION_MISMATCH"))Button(row,"安裝自動連線外掛",()=>InstallRhino());
     }
     static string DocumentName(JsonElement doc){
         if(doc.ValueKind!=JsonValueKind.Object)return "";
@@ -63,7 +63,7 @@ public sealed partial class SetupWindow
         if(service.Update is JsonElement u){
             c.Children.Add(T("新版："+ExperienceState.Text(u,"version"),22,true));
             Notice(c,"更新流程","下載並驗證新安裝程式 → 建立新環境 → 完成 CAD 端設定 → 安裝 Plugin → 逐套檢查與啟用。未通過的元件不會切換。");
-            Notice(c,"Rhino 外掛正在使用時","新檔案先放在獨立版本目錄。請自行保存工作並重開 Rhino，再註冊新版本外掛及重新檢查。",true);
+            Notice(c,"Rhino 外掛正在使用時","新檔案先放在獨立版本目錄。請自行保存工作並重開 Rhino，再重新檢查自動連線。",true);
             Button(c,"下載並準備更新",Update,true);Button(c,"查看新版發布說明 ↗",()=>{Open("https://github.com/allen2123231/cad-toolkit/releases/tag/v"+ExperienceState.Text(u,"version"));return Task.CompletedTask;});
         }else c.Children.Add(T(updateChecked?"目前是此通道最新版本。":"尚未檢查新版。"));
         Button(c,"檢查新版",async()=>await Work("正在查詢已發布版本",async()=>{await service.CheckUpdate();updateChecked=true;status.Text=service.Update==null?"目前是此通道最新版本。":"已找到新版，可先查看更新內容。";}),service.Update==null);
@@ -103,7 +103,7 @@ public sealed partial class SetupWindow
     }
     void Help(){
         Header("問題處理","遇到問題，先看下一步","技術錯誤保留在下方詳細資料。操作教學可離線閱讀。");
-        foreach(var item in new[]{("找不到 CAD","確認已安裝且授權可用，再指定程式位置。",1),("找不到 Codex","從官方入口安裝並登入，回來重新檢查。",2),("下載中斷／磁碟空間不足","檢查網路，預留至少 3 GB；按原操作重試，已完成元件保留。",3),("外掛未載入／橋接版本不符","依圖解完成 APPLOAD 或 mcpstart；更新外掛後重新啟動 CAD 再查。",4),("新對話看不到工具","檢查 Plugin 已安裝與元件已啟用，再新增 Codex 對話。",5),("沒有文件／多個程序","Inventor 可留首頁；其他軟體選正確文件。多程序時先自行確認目標，不猜測。",6)}){var c=Card(body,item.Item1,item.Item2);Button(c,"查看處理方式 →",()=>Go(item.Item3));}
+        foreach(var item in new[]{("找不到 CAD","確認已安裝且授權可用，再指定程式位置。",1),("找不到 Codex","從官方入口安裝並登入，回來重新檢查。",2),("下載中斷／磁碟空間不足","檢查網路，預留至少 3 GB；按原操作重試，已完成元件保留。",3),("外掛未載入／橋接版本不符","Rhino 按安裝外掛後重開；AutoCAD 先檢查自動載入，必要時用 APPLOAD。",4),("新對話看不到工具","檢查 Plugin 已安裝與元件已啟用，再新增 Codex 對話。",5),("沒有文件／多個程序","Inventor 可留首頁；其他軟體選正確文件。多程序時先自行確認目標，不猜測。",6)}){var c=Card(body,item.Item1,item.Item2);Button(c,"查看處理方式 →",()=>Go(item.Item3));}
         Button(body,"查看離線截圖教學",()=>Navigate("guides"));Button(body,"版本更新問題",()=>Navigate("updates"));
     }
     async Task Update(){

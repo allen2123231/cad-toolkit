@@ -15,12 +15,17 @@ def outputs():
         labels = ''.join(f'<rect x="24" y="{72+i*82}" width="692" height="62" rx="8" fill="white" stroke="#006967"/><text x="44" y="{109+i*82}" font-size="18">{html.escape(line)}</text>' for i, line in enumerate(g['diagram']))
         files['docs/'+image] = f'<svg xmlns="http://www.w3.org/2000/svg" width="740" height="344" viewBox="0 0 740 344"><rect width="740" height="344" fill="#ecf6f6"/><g font-family="Microsoft JhengHei, sans-serif" fill="#18313d"><text x="24" y="38" font-size="17">操作位置示意・非實際截圖</text>{labels}</g></svg>\n'
         lines = [f"# {g['title']}", '', g['purpose'], '', '## 操作位置', '', g['location'], '', g['version'], '']
+        if key == 'rhino':
+            lines += ['![Toolkit Rhino 自動連線安裝頁實際渲染](images/rhino-autoconnect.png)', '']
         if 'pages' in g:
             if 'first_time' in g:
                 lines += ['## 只有第一次或更新外掛時', ''] + [f'{i}. {text}' for i, text in enumerate(g['first_time'], 1)] + ['']
             lines += ['## 依序操作', '']
             for i, step in enumerate(g['pages'], 1):
-                lines += [f"### {i}. {step['title']}", '', '操作位置：'+step['location'], '', step['text'], '', f"![{step['caption']}](images/guides/{step['image']})", '', step['caption'], '', '完成後：'+step['success'], '']
+                lines += [f"### {i}. {step['title']}", '', '操作位置：'+step['location'], '', step['text'], '']
+                if step.get('image'):
+                    lines += [f"![{step['caption']}](images/guides/{step['image']})", '', step['caption'], '']
+                lines += ['完成後：'+step['success'], '']
         else:
             lines += [f"![{g['title']}：操作示意]({image})", '', '## 只有第一次需要執行', '']
             lines += [f'{i}. {step}' for i, step in enumerate(g['steps'], 1)]
@@ -42,7 +47,7 @@ Windows x64、自己的 AutoCAD／Inventor／Rhino 8 授權、網路及約 3 GB 
 2. 開啟 EXE。七步精靈會記住進度，下次可繼續。只勾選要使用的軟體。
 3. 依 [AI 助手圖解](codex.md) 完成桌面應用程式安裝、登入及 Codex 對話入口。
 4. 按「安裝並繼續」，等待下載、驗證與工具安裝。中斷時已完成的元件會保留。
-5. 按你使用的軟體閱讀：[AutoCAD](autocad.md)／[Inventor](inventor.md)／[Rhino](rhino.md)。圖解也已內建於 EXE，可離線閱讀。
+5. 按你使用的軟體閱讀（Rhino 在本頁按鈕安裝自動連線外掛，再開啟／重開 Rhino）：[AutoCAD](autocad.md)／[Inventor](inventor.md)／[Rhino](rhino.md)。圖解也已內建於 EXE，可離線閱讀。
 6. 在「確認可以使用」逐套重新檢查，再按「啟用這套工具」。通過一套就能先使用，其他套可以稍後設定。
 7. 在 Codex 新增本機對話，貼上下方唯讀指令。核對 AI 實際讀取的文件與 CAD 分頁名稱相同，再按「我已核對唯讀結果」。
 
@@ -53,7 +58,7 @@ Windows x64、自己的 AutoCAD／Inventor／Rhino 8 授權、網路及約 3 GB 
 ## 每次使用
 
 1. 開啟 CAD 與要使用的文件。
-2. Rhino 在指令列執行 `mcpstart`；AutoCAD 確認已載入 Toolkit 的 dispatcher；Inventor 開啟正確分頁。
+2. Rhino 文件準備好後會自動啟動橋接；AutoCAD 會嘗試自動載入 dispatcher；Inventor 開啟正確分頁。
 3. 在 Toolkit 首頁重新檢查，再到 Codex 新增對話，先執行唯讀指令。
 4. 確認文件後才提出建模需求。另建空白文件做練習，不使用工作文件。
 

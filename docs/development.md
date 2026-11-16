@@ -10,6 +10,7 @@
 - `installer/ToolkitService.cs`：下載、驗證、後端事件與更新。
 - `engine/manager.py`：原有 CLI 安裝／診斷／啟用／還原／解除安裝介面。
 - `engine/experience.py`：穩定診斷代碼、結果與可執行提示。
+- `engine/rhino_setup.py`：驗證固定 `.yak`，使用 Rhino 8 自帶的 Yak 安裝原生外掛；`configure_rhino` 為獨立 CAD 設定步驟。
 - `sources.json`、`locks/`：來源 commit 與依賴完整鎖版。
 
 三套 MCP 工具名稱與參數未改動：[AutoCAD](https://github.com/allen2123231/autocad-mcp)、[Inventor](https://github.com/allen2123231/inventor-mcp)、[Rhino](https://github.com/allen2123231/rhinomcp)。
@@ -30,7 +31,7 @@ python scripts/finalize_release.py
 
 僅當刻意更新依賴時使用 `build_payload.py --refresh-locks`。相同來源 commit 與 runtime 可使用 `repack_payload.py` 更新應用內容；此腳本會拒絕來源／runtime 改動。
 
-GitHub Actions 會驗證內容一致性、執行測試、建置獨立環境與 Rhino 外掛、產生自包含 EXE 與 SHA-256。`v*` 標籤發布同版本 Release。
+GitHub Actions 會驗證內容一致性、執行測試、建置獨立環境、核對固定 Rhino 外掛安裝包、產生自包含 EXE 與 SHA-256。`v*` 標籤發布同版本 Release。Rhino 外掛的來源、版本、下載網址與雜湊由 `sources.json` 管理，與 Python 來源配對。
 
 ## 事件與狀態
 

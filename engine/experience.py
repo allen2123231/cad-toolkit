@@ -7,7 +7,7 @@ class Cancelled(RuntimeError):
 def outcome(component, status, enabled=False):
     code = 'BRIDGE_NOT_CONNECTED'
     action = {'autocad': '切換到 AutoCAD，依圖解用 APPLOAD 載入指定檔案，再重新檢查。',
-              'rhino': '切換到 Rhino，在指令列輸入 mcpstart，再重新檢查。',
+              'rhino': '按「安裝自動連線外掛」，完成後自行儲存並重開 Rhino；新版會自動連線，再重新檢查。',
               'inventor': '開啟 Inventor，停留在首頁即可，再重新檢查。'}[component]
     if not status.get('installed'):
         code, action = 'NOT_INSTALLED', '回到「安裝連線工具」，安裝這套軟體的元件。'
@@ -20,7 +20,9 @@ def outcome(component, status, enabled=False):
     elif status.get('document_missing'):
         code, action = 'NO_DOCUMENT', '請先在 CAD 開啟或新增一份文件，再重新檢查。'
     elif not status.get('bridge') and '版本' in status.get('message', ''):
-        code, action = 'VERSION_MISMATCH', '依圖解重新註冊此版本外掛。若 Rhino 已載入舊外掛，請自行保存並重新啟動後再檢查。'
+        code = 'VERSION_MISMATCH'
+        action = ('安裝此版本的外掛，再自行儲存並重新啟動 Rhino 後檢查。' if component == 'rhino'
+                  else '依此版本圖解重新載入連線工具，再重新檢查。')
     elif status.get('bridge'):
         document = status.get('document')
         if component == 'inventor' and isinstance(document, dict): document = document.get('document')

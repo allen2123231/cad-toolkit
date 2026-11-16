@@ -22,6 +22,11 @@ def main():
     sources = read_json(ROOT / "sources.json")
     build = ROOT / ".build"
     payload = build / "payload"
+    # A payload is a complete release, never a mixture of files from old builds.
+    if payload.exists():
+        if payload.resolve().parent != build.resolve() or payload.name != "payload":
+            raise ValueError("Unexpected payload build directory")
+        shutil.rmtree(payload)
     payload.mkdir(parents=True, exist_ok=True)
     dist = ROOT / "dist"
     dist.mkdir(exist_ok=True)
@@ -51,7 +56,7 @@ def main():
         print("Building " + name, flush=True)
         archive = build / (name + "-" + spec["commit"] + ".zip")
         if not archive.exists(): download(f"https://codeload.github.com/{spec['repo']}/zip/{spec['commit']}", archive)
-        source_root = build / "sources" / name
+        source_root = build / "sources" / name / spec["commit"]
         if not source_root.exists(): extract_zip(archive, source_root)
         source = next(source_root.iterdir())
         project = source / spec["subdir"]
@@ -66,8 +71,11 @@ def main():
                  "--generate-hashes", "--no-annotate", "--no-header", "--output-file", lock])
         wheel_dir = payload / "wheels" / name
         wheel_dir.mkdir(parents=True, exist_ok=True)
-        run([uv, "build", "--wheel", "--out-dir", build / "project-wheels" / name, str(project)], env=env)
-        wheel = next((build / "project-wheels" / name).glob("*.whl"))
+        project_wheels = build / "project-wheels" / name / spec["commit"]
+        run([uv, "build", "--wheel", "--out-dir", project_wheels, str(project)], env=env)
+        wheels = list(project_wheels.glob("*.whl"))
+        if len(wheels) != 1: raise ValueError(f"Expected one project wheel for {name}")
+        wheel = wheels[0]
         shutil.copy2(wheel, wheel_dir / wheel.name)
         run([sys.executable, "-m", "pip", "download", "--only-binary=:all:", "--python-version", "3.12",
              "--platform", "win_amd64", "--implementation", "cp", "--abi", "cp312", "--require-hashes",
@@ -79,8 +87,17 @@ def main():
         for license_file in source.glob("LICENSE*"): shutil.copy2(license_file, licenses / license_file.name)
         if name == "autocad": shutil.copytree(source / "lisp-code", payload / "cad/autocad", dirs_exist_ok=True)
         if name == "rhino":
-            run([args.dotnet, "build", source / "plugin/rhinomcp.csproj", "-c", "Release"], timeout=900)
-            shutil.copytree(source / "plugin/bin/Release/net8.0", payload / "cad/rhino", dirs_exist_ok=True)
+            asset = spec["plugin_asset"]
+            if tomllib.loads((project / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"] != asset["version"]:
+                raise ValueError("Rhino Python and plugin versions must match")
+            package = build / "native" / Path(asset["url"]).name
+            if not package.exists() or sha256(package) != asset["sha256"]:
+                download(asset["url"], package, asset["sha256"])
+            native = build / "native" / asset["sha256"]
+            if not native.exists(): extract_zip(package, native)
+            shutil.copytree(native / "net8.0", payload / "cad/rhino", dirs_exist_ok=True)
+            shutil.copy2(package, payload / "cad/rhino" / package.name)
+            spec = {**spec, "plugin_file": package.name}
         components[name] = {**spec, "wheel": wheel.name}
     files = {p.relative_to(payload).as_posix(): sha256(p) for p in sorted(payload.rglob("*"))
              if p.is_file() and p.name != "bundle.json" and "__pycache__" not in p.parts}

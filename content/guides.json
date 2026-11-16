@@ -4,8 +4,8 @@
   "codex": {
     "title": "準備你的 AI 助手",
     "purpose": "用桌面應用程式內的 Codex 與本機 CAD 工具對話。帳號登入需要網路。",
-    "location": "Windows 開始功能表 → ChatGPT 或 Codex 桌面應用程式",
-    "version": "官方入門文件核對：2026-09-16。名稱與入口依桌面版本而異。",
+    "location": "Windows 開始功能表 → Codex 桌面應用程式",
+    "version": "Codex 桌面應用程式的入口名稱依版本而異；以最後實際呼叫 CAD 工具的唯讀回覆確認完成。",
     "command": "",
     "diagram": [
       "1  開啟桌面應用程式",
@@ -14,8 +14,8 @@
     ],
     "steps": [
       "按「官方下載與入門」進入官方頁面，選擇 Windows 桌面版本並完成安裝。Toolkit 不會替你購買帳號或 CAD 授權。",
-      "從 Windows 開始功能表開啟 ChatGPT／Codex 桌面應用程式，按登入，使用自己的 ChatGPT 帳號完成瀏覽器登入流程。",
-      "新版整合桌面介面：從 ChatGPT 下拉選單選擇 Codex；若你的視窗已叫 Codex，直接使用該視窗。一般網頁聊天不是這個本機工具入口。",
+      "從 Windows 開始功能表開啟 Codex 桌面應用程式，使用自己的帳號完成登入。",
+      "在 Codex 建立本機對話，選擇自己的練習資料夾。一般網頁聊天不會直接使用本機 CAD stdio 工具。",
       "在左側使用新增對話／新增任務入口，建立本機對話。若要求資料夾，可選自己的練習資料夾。完成工具啟用後需要再新增一個對話，才能讀取新工具。",
       "回到 CAD Toolkit 按「重新檢查 Codex」。找到程式代表可以繼續安裝；帳號是否登入、對話是否能載入工具，要在最後的唯讀練習確認。"
     ],
@@ -28,16 +28,17 @@
   },
   "autocad": {
     "title": "讓 AutoCAD 接受連線",
-    "purpose": "將 Toolkit 的連線檔載入 AutoCAD。每次重新開啟 AutoCAD 請確認已載入；更新時使用新版本的檔案。",
+    "purpose": "新版在找不到派送器時會嘗試自動載入。先直接檢查連線；手動 APPLOAD 留作載入受阻或舊版派送器仍在回應時的處理方式。",
     "location": "AutoCAD 視窗下方的指令列；若看不到，可按 Ctrl+9 顯示。",
     "version": "以 AutoCAD 2026 操作位置設計；本版完整 GUI 載入流程待實機驗收。其他版本未驗證。",
-    "command": "APPLOAD",
+    "command": "",
     "diagram": [
-      "1  在指令列輸入 APPLOAD",
-      "2  選取檔案並載入",
-      "3  確認載入結果"
+      "1  開啟 AutoCAD 與圖面，直接檢查",
+      "2  找不到派送器時嘗試自動載入",
+      "3  必要時才使用 APPLOAD 備用圖解"
     ],
     "steps": [
+      "先開啟 AutoCAD 與要使用的圖面，完成目前指令，回 Toolkit 按「檢查這一步」。若已連線，可直接繼續；只有失敗時才依後續 APPLOAD 圖解操作。",
       "開啟 AutoCAD 與要使用的圖面，完成目前指令。點下方指令輸入區，輸入 APPLOAD，再按 Enter。",
       "按 Toolkit 的「開啟檔案位置」或「複製完整路徑」，找到目前版本的 mcp_dispatch.lsp。先選取檔案，再按「載入」。如出現信任提示，核對這個確切資料夾；不要將整個磁碟設為可信任。",
       "對照下方訊息「mcp_dispatch.lsp 成功載入」。保持 AutoCAD 開啟，回 Toolkit 按「檢查這一步」。"
@@ -46,9 +47,18 @@
     "problems": [
       "APPLOAD 找不到檔案：先完成「安裝連線工具」，再使用本頁提供的實際路徑。",
       "仍無法連線：重新載入本頁檔案，確認沒有其他 AutoCAD 程序。Python 與 LISP 的通訊目錄由 Toolkit 同步產生。",
-      "每次重開 AutoCAD：確認 dispatcher 已載入；若未設定自動載入，再執行一次 APPLOAD。"
+      "重開 AutoCAD 或切換圖面後：先重新檢查，必要時才以本頁路徑 APPLOAD 載入；舊版仍在回應時也需重新載入新版。"
     ],
     "pages": [
+      {
+        "title": "先檢查自動連線",
+        "location": "AutoCAD 圖面與 Toolkit「檢查這一步」",
+        "text": "開啟 AutoCAD 與圖面，完成目前指令後回 Toolkit 檢查。新版可在派送器未接收命令時自動載入；成功後直接到下一個設定步驟。舊版仍在回應或自動載入受阻時，再使用後面的 APPLOAD 圖解。",
+        "image": "",
+        "caption": "",
+        "success": "讀到 file_ipc 與目前圖面。未通過時才繼續手動載入圖解。",
+        "command": ""
+      },
       {
         "title": "在指令列輸入 APPLOAD",
         "location": "AutoCAD 視窗下方的指令列",
@@ -79,49 +89,53 @@
     ]
   },
   "rhino": {
-    "title": "讓 Rhino 開始連線",
-    "purpose": "第一次註冊外掛；每次開啟 Rhino 後啟動連線。",
-    "location": "檔案總管的 Toolkit 外掛資料夾，以及 Rhino 上方指令列。",
-    "version": "以 Rhino 8 介面設計；本版完整 GUI 註冊及唯讀橋接待實機驗收。其他版本未驗證。",
-    "command": "mcpstart",
+    "title": "安裝 Rhino 外掛，自動連線",
+    "purpose": "在 Toolkit 安裝自動連線外掛；之後開啟 Rhino 即可使用。",
+    "location": "Toolkit 本頁的「安裝 Rhino 自動連線外掛」按鈕。",
+    "version": "固定採用本分支 RhinoMCP 0.5.2，已驗證正常啟動、自動橋接與新文件圓柱建模。Toolkit 完整乾淨 Windows 流程仍待驗收。",
+    "command": "",
     "diagram": [
-      "1  開啟 Rhino，輸入 mcpstart",
-      "2  確認啟動結果"
+      "1  按「安裝 Rhino 自動連線外掛」",
+      "2  開啟／重開 Rhino",
+      "3  回 Toolkit 檢查連線與版本"
     ],
     "steps": [
-      "開啟 Rhino 8，等待工作區出現。點上方「指令：」，輸入或貼上 mcpstart，再按 Enter。每次重開 Rhino 都需要這一步。",
-      "確認出現 RhinoMCP server started on 127.0.0.1:1999、Server started. 與 Server thread started。保持 Rhino 開啟，回 Toolkit 檢查。"
+      "先完成連線工具安裝，再按本頁「安裝 Rhino 自動連線外掛」。Toolkit 使用 Rhino 自帶的套件管理工具安裝固定版本，不必拖曳檔案。",
+      "若 Rhino 已開啟，請自行儲存工作後重開；尚未開啟時直接開啟 Rhino 8。等待文件準備好，橋接會自動啟動。",
+      "回 Toolkit 按「檢查連線」，確認外掛與 Python 端同為 0.5.2，並讀到目前文件。日常不用輸入 mcpstart，也不用設定啟動命令。"
     ],
     "success": "檢查顯示橋接已連線與文件摘要，而且外掛與伺服器版本相符。",
     "problems": [
-      "尚未開始連線：到 Rhino 上方指令列輸入 mcpstart，完成後重新檢查。",
-      "版本不符：自行保存並重開 Rhino，再註冊本頁指定版本。",
-      "有多個 Rhino 視窗／程序：確認要使用的文件，自行保存並關閉其他程序後再檢查；Toolkit 不會猜測目標。"
+      "外掛尚未安裝：先按本頁安裝按鈕，再開啟 Rhino。",
+      "找不到套件管理工具：先安裝 Rhino 8；若不是預設位置，回「選擇軟體」指定 Rhino.exe。",
+      "版本不符：確認安裝完成，自行儲存並重開所有使用舊外掛的 Rhino，再重新檢查。",
+      "仍未連線：等待文件準備好，確認不是安全模式且外掛未停用；再檢查。",
+      "多個 Rhino 程序：先確認唯一目標；Toolkit 不會猜測或自動關閉其他工作。"
     ],
     "pages": [
       {
-        "title": "開啟 Rhino，輸入 mcpstart",
-        "location": "Rhino 視窗上方的「指令：」輸入列",
-        "text": "開啟 Rhino 8，等待工作區出現。點上方「指令：」，輸入或貼上 mcpstart，再按 Enter。每次重開 Rhino 都需要這一步。",
-        "image": "rhino-input.png",
-        "caption": "使用者提供的圖 1，移除包含工作檔名的標題列，其餘保持原始像素。上方是先前歷史訊息。",
-        "success": "按下 Enter 後，前往下一步對照新增的啟動訊息。",
-        "command": "mcpstart"
+        "title": "在 Toolkit 安裝外掛",
+        "location": "本頁上方的安裝按鈕",
+        "text": "按「安裝 Rhino 自動連線外掛」。安裝由 Rhino 8 自帶的套件管理工具完成，保留整組相依檔案。",
+        "image": "",
+        "caption": "",
+        "success": "顯示外掛已安裝，並提示直接開啟或重新開啟 Rhino。",
+        "command": ""
       },
       {
-        "title": "確認啟動結果",
-        "location": "Rhino 指令列上方的訊息區",
-        "text": "確認出現 RhinoMCP server started on 127.0.0.1:1999、Server started. 與 Server thread started。保持 Rhino 開啟，回 Toolkit 檢查。",
-        "image": "rhino-result.png",
-        "caption": "使用者提供的圖 2，移除包含工作檔名的標題列，其餘保持原始像素。",
-        "success": "Toolkit 會讀取橋接能力、版本與文件摘要；只看到啟動文字還不代表完整診斷通過。",
+        "title": "開啟 Rhino，等待自動連線",
+        "location": "本頁上方的「開啟 Rhino」與「檢查連線」按鈕",
+        "text": "開啟 Rhino 8；若剛才已開啟，先自行儲存並重開。文件準備好後橋接會自動啟動，回 Toolkit 按「檢查連線」。",
+        "image": "",
+        "caption": "",
+        "success": "Toolkit 讀到目前文件，且外掛與服務版本一致。",
         "command": ""
       }
     ],
     "first_time": [
-      "只有第一次或更換外掛版本：先按「開啟檔案位置」。保持整個 rhinomcp.rhp 所在資料夾完整，不要只搬動 .rhp。",
-      "若 Rhino 已載入舊版外掛，先自行保存工作並關閉 Rhino，再開啟 Rhino 8。",
-      "將 rhinomcp.rhp 拖入 Rhino 視窗，或到外掛程式管理員安裝這個檔案。完成後依下方兩步啟動連線。"
+      "只在首次安裝或更新外掛時按一次本頁的安裝按鈕。",
+      "若 Rhino 正在執行，安裝完成後自行儲存並重開即可載入新版。",
+      "套件由固定 GitHub Release 取得並驗證 SHA-256，與 Python 服務版本配對。"
     ]
   },
   "inventor": {
