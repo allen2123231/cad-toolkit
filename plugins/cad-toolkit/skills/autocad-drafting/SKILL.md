@@ -5,6 +5,8 @@ description: 透過 AutoCAD MCP 建立或修改圖面、圖層、物件及標註
 
 # AutoCAD 圖面操作
 
+建模前先以 `get_application_state(wait_seconds=0)` 確認可見主視窗。尚未開啟或只有背景視窗時，呼叫 `open_application`，再用 `get_application_state(wait_seconds=45)` 等待 window_open；starting 時繼續等待，不啟動第二個程序。不要自行使用 shell 或隱藏模式啟動軟體。視窗出現後再檢查 MCP 橋接與目前文件。
+
 先用 `system` status 與 `drawing` info 確認 backend、文件與單位；實機操作需 `file_ipc`。工具參數以目前暴露的 schema 為準。
 
 修改前辨識使用者指定的物件、圖層及範圍；既有圖面做大範圍修改時先建立備份。尺寸從實際幾何取得，不從畫面像素推估。

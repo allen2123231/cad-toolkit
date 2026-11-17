@@ -105,13 +105,13 @@ class DesktopTests(unittest.TestCase):
         source = {"python": sys.executable, "command": [sys.executable], "enabled": True}
         with patch("runtime.version", return_value="0.1.0"), patch("runtime.native") as native, patch("runtime.probe") as probe:
             self.assertEqual(runtime.row("inventor", source, [], self.root, {}, {})["code"], "CAD_NOT_RUNNING")
-            self.assertEqual(runtime.row("inventor", source, [10, 11], self.root, {}, {})["code"], "SELECT_TARGET")
+            self.assertEqual(runtime.row("inventor", source, [10, 11], self.root, {}, {}, frames=[{"kind":"inventor","pid":10,"hwnd":123},{"kind":"inventor","pid":11,"hwnd":124}])["code"], "SELECT_TARGET")
             native.assert_not_called(); probe.assert_not_called()
 
     def test_inventor_home_is_usable_and_version_is_not_claimed_latest(self):
         source = {"python": sys.executable, "enabled": True}
         with patch("runtime.version", return_value="0.1.0"), patch("runtime.native", return_value={"ready": True, "hwnd": 123, "version": "2027.1", "document": None}):
-            row = runtime.row("inventor", source, [10], self.root, {"components": {"inventor": {"package_version": "0.1.0"}}}, {})
+            row = runtime.row("inventor", source, [10], self.root, {"components": {"inventor": {"package_version": "0.1.0"}}}, {}, frames=[{"kind":"inventor","pid":10,"hwnd":123,"processStart":1}])
         self.assertEqual(row["code"], "READY")
         self.assertEqual(row["update"], "compatible")
         self.assertIsNone(row["document"])
@@ -141,9 +141,7 @@ class DesktopTests(unittest.TestCase):
         atomic_json(folder / '42.json', instance)
         with patch.dict(os.environ, {'LOCALAPPDATA': str(self.root)}), patch('rhino_instances.process_start', return_value=1794787200.0):
             self.assertEqual(rhino_instances.collect([42]), [instance])
-            self.assertIsNone(rhino_instances.choose(self.root, [42, 43]))
-            atomic_json(self.root / 'targets.json', {'rhino': {'pid': 42, 'processStart': instance['processStart']}})
-            self.assertEqual(rhino_instances.choose(self.root, [42, 43])['port'], 2000)
+            self.assertEqual(rhino_instances.collect([42, 43]), [instance])
             with patch('rhino_instances.process_start', return_value=1794787300.0):
                 self.assertEqual(rhino_instances.collect([42]), [])
 

@@ -11,7 +11,9 @@ import sys
 import time
 import tomllib
 import history
-from rhino_instances import collect, choose
+from rhino_instances import collect
+from window_store import Store, window_lock
+import window_scan
 from common import read_json, atomic_json
 from probe import Client
 
@@ -142,11 +144,24 @@ def licensing_error(root, kind):
     return text.rfind('Unable to connect with a Licensing component') > max(text.rfind('IsAuthorized = true'), text.rfind('IsAuthorized=true'), text.rfind('code = 0'))
 
 
-def row(kind, source, pids, root, manifest, choices):
+def window_identity(window):
+    return {k:window.get(k) for k in ("pid","hwnd","processStart","instance_id")}
+
+
+def visible_status(info, frames, pids):
+    """Fail closed when a successful probe no longer has its verified frame."""
+    if info.get("code") != "READY": return info
+    current = [window_identity(w) for w in frames if w["kind"]==info["id"] and w["pid"] in pids and w.get("visible",True)]
+    if not any(w in current for w in info.get("verified_windows",[])):
+        info.update(code="BACKGROUND_ONLY" if pids else "CAD_NOT_RUNNING",document=None,verified_windows=[])
+    return info
+
+
+def row(kind, source, pids, root, manifest, choices, frames=None):
     info = {"id": kind, "name": NAMES[kind], "code": "NOT_INSTALLED", "installed": False,
             "managed": source.get("managed", False), "enabled": source.get("enabled", False), "pending": source.get("pending", False), "pids": pids,
             "document": None, "endpoint": "TCP · 等待 Rhino" if kind == "rhino" else "檔案 IPC · 無網路端口" if kind == "autocad" else "COM · 無網路端口",
-            "version": None, "expected_version": None, "update": "unknown", "instances": []}
+            "version": None, "expected_version": None, "update": "unknown", "instances": [], "verified_windows": []}
     spec = manifest.get("components", {}).get(kind, {})
     info["expected_version"] = spec.get("package_version") or (spec.get("plugin_asset") or {}).get("version")
     if not source or not Path(source.get("python", "")).is_file():
@@ -161,14 +176,23 @@ def row(kind, source, pids, root, manifest, choices):
         if not pids:
             info["code"] = "LICENSING_ERROR" if licensing_error(root, kind) else "CAD_NOT_RUNNING"
             return info
+        frames = window_scan.scan() if frames is None else frames
+        visible = [w for w in frames if w["kind"]==kind and w["pid"] in pids and w.get("visible",True)]
+        if not visible:
+            info["code"] = "BACKGROUND_ONLY"
+            info["message"] = "只有背景程序，尚無可見的主視窗；按「開啟 "+NAMES[kind]+"」可顯示視窗。"
+            return info
         if kind == "rhino":
-            instances = collect(pids)
+            instances = collect([w["pid"] for w in visible])
             info["instances"] = instances
-            instance = choose(root, pids, instances)
-            if not instance:
-                info["code"] = "SELECT_TARGET" if len(pids) > 1 else "BRIDGE_NOT_CONNECTED"
+            supported = [i for i in instances if i.get("guard_protocol") == 1 and any(w["pid"]==i["pid"] and w["hwnd"]==i.get("hwnd") for w in visible)]
+            if not supported:
+                info["code"] = "VERSION_MISMATCH" if instances else "STARTING" if any(time.time()-float(w.get("processStart",0))<120 for w in visible) else "BRIDGE_NOT_CONNECTED"
+                if instances: info["message"] = "請更新 Rhino MCP 外掛並重新開啟 Rhino，以啟用獨立視窗綁定。"
                 return info
-            info.update(endpoint=f"127.0.0.1:{instance['port']}", selected_pid=instance["pid"], plugin_version=(instance.get("version") or "").split("+")[0])
+            instance = supported[0]  # Health probe only; never selects a tool target.
+            info["verified_windows"] = [window_identity(w) for w in visible if w["pid"]==instance["pid"] and w["hwnd"]==instance["hwnd"]]
+            info.update(endpoint="各視窗獨立 TCP 端口", plugin_version=(instance.get("version") or "").split("+")[0])
             if "command" not in source:
                 info["code"] = "NOT_ENABLED"
                 return info
@@ -178,6 +202,12 @@ def row(kind, source, pids, root, manifest, choices):
                 info["code"] = "SELECT_TARGET"
                 return info
             app = native(source, kind)
+            matched = [w for w in visible if w["hwnd"]==app.get("hwnd")]
+            if not matched:
+                info["code"]="TARGET_MISMATCH"
+                info["message"]="MCP 尚未附加到可見的軟體視窗，請重新檢查連線。"
+                return info
+            info["verified_windows"] = [window_identity(w) for w in matched]
             info.update(document=app.get("document"), cad_version=app.get("version"), hwnd=app.get("hwnd"))
             if kind == "inventor":
                 info["code"] = "READY" if app.get("ready") else "LICENSING_ERROR" if licensing_error(root, kind) else "STARTING"
@@ -200,7 +230,7 @@ def row(kind, source, pids, root, manifest, choices):
 def snapshot(root, config, manifest):
     sources = discover(root, config)
     pids = running_processes()
-    choices = load(Path(root) / "targets.json")
+    choices = {}
     # Isolate COM and MCP waits from UI; calls are bounded by their child process.
     def get(kind):
         try:
@@ -228,17 +258,28 @@ def snapshot(root, config, manifest):
                     "message": "軟體未在時間內回應；不會另外啟動或關閉 CAD。"}
     with ThreadPoolExecutor(max_workers=3) as pool:
         rows = list(pool.map(get, NAMES))
+    # A window can close while its bridge check is in flight.
+    current_frames = window_scan.scan()
+    current_pids = running_processes()
+    rows = [visible_status(r,current_frames,current_pids[r["id"]]) for r in rows]
     return {"at": dt.datetime.now(dt.timezone.utc).isoformat(), "rows": rows, "history": history.recent(root)}
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["snapshot", "row", "clear-history", "select"])
+    parser.add_argument("action", choices=["snapshot", "row", "clear-history", "windows", "rename-window", "locate-window", "bind-window", "cancel-binding", "release-binding", "confirm-document", "clear-window-titles", "open-cad", "application-state"])
     parser.add_argument("--root", required=True)
     parser.add_argument("--config", default=str(Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml"))
     parser.add_argument("--manifest")
     parser.add_argument("--kind", choices=list(NAMES))
     parser.add_argument("--pid", type=int)
+    parser.add_argument("--window-id")
+    parser.add_argument("--request-id")
+    parser.add_argument("--binding-id")
+    parser.add_argument("--name")
+    parser.add_argument("--serial", type=int)
+    parser.add_argument("--epoch", type=int)
+    parser.add_argument("--wait-seconds",type=int,default=0)
     args = parser.parse_args()
     if args.action == "row":
         data = json.load(sys.stdin)
@@ -248,20 +289,53 @@ def main():
     elif args.action == "clear-history":
         history.clear(args.root)
         value = {"ok": True}
+    elif args.action == "windows":
+        value = window_scan.refresh(args.root, names=True)
+    elif args.action in ("open-cad","application-state"):
+        from cad_launch import ensure_started, wait_for_application
+        if not args.kind: raise ValueError("請指定要開啟的軟體。")
+        value = ensure_started(args.root,args.kind) if args.action=="open-cad" else wait_for_application(args.root,args.kind,args.wait_seconds)
     else:
-        if args.kind != "rhino":
-            raise ValueError("目前只支援選取 Rhino 的原生連線實例。")
-        file = Path(os.environ["LOCALAPPDATA"]) / "RhinoMCP/instances" / f"{args.pid}.json"
-        matches = [i for i in collect(running_processes()["rhino"]) if i['pid'] == args.pid]
-        if len(matches) != 1:
-            raise ValueError("這個 Rhino 已關閉，請重新選取。")
-        instance = matches[0]
-        choices = load(Path(args.root) / "targets.json")
-        choices["rhino"] = {"pid": args.pid, "processStart": instance.get("processStart")}
-        atomic_json(Path(args.root) / "targets.json", choices)
+        store = Store(args.root)
+        panel = window_scan.refresh(args.root)
+        window = next((w for w in panel["windows"] if w["window_id"] == args.window_id), None)
+        if args.action == "clear-window-titles":
+            window_scan.apply_names(args.root, panel["windows"], clear=True)
+        elif args.action == "cancel-binding":
+            store.cancel(args.request_id)
+        elif args.action in ("release-binding", "confirm-document"):
+            b = store.binding(args.binding_id)
+            with window_lock(args.root, b["window_id"], timeout=25):
+                b = store.binding(args.binding_id)
+                if args.action == "release-binding": store.release(args.binding_id)
+                else:
+                    current = b["window"]
+                    if (current.get("document_serial"), current.get("document_epoch")) != (args.serial, args.epoch):
+                        raise ValueError("文件再次切換，請重新確認。")
+                    store.confirm(args.binding_id, args.serial, args.epoch)
+        else:
+            if not window: raise ValueError("視窗已關閉，請重新選取。")
+            if args.action == "rename-window":
+                store.rename(args.window_id, args.name or "")
+                window_scan.apply_names(args.root, store.windows())
+            elif args.action == "locate-window": window_scan.locate(window)
+            elif args.action == "bind-window":
+                with window_lock(args.root, args.window_id, timeout=25):
+                    # Refresh again after waiting for an in-flight command.
+                    window_scan.refresh(args.root)
+                    store.bind(args.request_id, args.window_id, args.binding_id)
         value = {"ok": True}
     print(json.dumps(value, ensure_ascii=True))
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (ValueError, TimeoutError) as exc:
+        print(json.dumps({"error": str(exc)}, ensure_ascii=True))
+        sys.exit(2)
+    except Exception:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps({"error": "無法完成這次要求，請重新檢查視窗或到「安裝與版本」修復元件。"}, ensure_ascii=True))
+        sys.exit(1)

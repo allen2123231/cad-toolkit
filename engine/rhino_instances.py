@@ -35,6 +35,12 @@ def collect(pids):
                 continue
             if not isinstance(value.get("port"), int) or not 1 <= value["port"] <= 65535:
                 continue
+            if value.get("guard_protocol") == 1:
+                identity = value.get("instance_id", "")
+                if len(identity) != 32 or any(c not in "0123456789abcdef" for c in identity):
+                    continue
+                if not all(isinstance(value.get(k), int) and value[k] >= 0 for k in ("hwnd", "document_serial", "document_epoch")):
+                    continue
             created = dt.datetime.fromisoformat(value["processStart"].replace("Z", "+00:00")).timestamp()
             actual = process_start(value["pid"])
             if actual is None or abs(actual-created) > 1:
@@ -43,16 +49,3 @@ def collect(pids):
         except (OSError, ValueError, KeyError):
             continue
     return result
-
-
-def choose(root, pids, instances=None):
-    instances = collect(pids) if instances is None else instances
-    try:
-        selected = json.loads((Path(root) / "targets.json").read_text(encoding="utf-8"))["rhino"]
-    except (OSError, ValueError, KeyError):
-        selected = None
-    if selected:
-        matches = [i for i in instances if i["pid"] == selected.get("pid") and i["processStart"] == selected.get("processStart")]
-        if len(matches) == 1:
-            return matches[0]
-    return instances[0] if len(pids) == 1 and len(instances) == 1 else None

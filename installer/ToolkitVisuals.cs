@@ -29,14 +29,25 @@ public static class ToolkitVisuals
         }
         return new Image{Source=new DrawingImage(drawing),Width=size,Height=size,Stretch=Stretch.Uniform,Margin=new Thickness(0,0,10,0)};
     }
-    public static System.Drawing.Icon TrayIcon(bool connected) {
-        var logo=Logo(32,connected);logo.Margin=new Thickness(0);logo.Measure(new Size(32,32));logo.Arrange(new Rect(0,0,32,32));
-        var bitmap=new RenderTargetBitmap(32,32,96,96,PixelFormats.Pbgra32);bitmap.Render(logo);
-        var png=new PngBitmapEncoder();png.Frames.Add(BitmapFrame.Create(bitmap));using var image=new MemoryStream();png.Save(image);
-        using var stream=new MemoryStream();using(var writer=new BinaryWriter(stream,System.Text.Encoding.UTF8,true)) {
-            writer.Write((ushort)0);writer.Write((ushort)1);writer.Write((ushort)1);writer.Write((byte)32);writer.Write((byte)32);writer.Write((byte)0);writer.Write((byte)0);writer.Write((ushort)1);writer.Write((ushort)32);writer.Write((uint)image.Length);writer.Write((uint)22);writer.Write(image.ToArray());
+    public static byte[] IconBytes(bool connected=false){
+        int[] sizes=[16,20,24,32,40,48,64,128,256];var frames=new List<byte[]>();
+        foreach(int size in sizes){
+            var logo=Logo(size,connected);logo.Margin=new Thickness(0);logo.Measure(new Size(size,size));logo.Arrange(new Rect(0,0,size,size));
+            var bitmap=new RenderTargetBitmap(size,size,96,96,PixelFormats.Pbgra32);bitmap.Render(logo);
+            var png=new PngBitmapEncoder();png.Frames.Add(BitmapFrame.Create(bitmap));using var image=new MemoryStream();png.Save(image);frames.Add(image.ToArray());
         }
-        stream.Position=0;using var icon=new System.Drawing.Icon(stream);return (System.Drawing.Icon)icon.Clone();
+        using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);
+        writer.Write((ushort)0);writer.Write((ushort)1);writer.Write((ushort)sizes.Length);int offset=6+16*sizes.Length;
+        for(int i=0;i<sizes.Length;i++){writer.Write((byte)(sizes[i]==256?0:sizes[i]));writer.Write((byte)(sizes[i]==256?0:sizes[i]));writer.Write((byte)0);writer.Write((byte)0);writer.Write((ushort)1);writer.Write((ushort)32);writer.Write((uint)frames[i].Length);writer.Write((uint)offset);offset+=frames[i].Length;}
+        foreach(var frame in frames)writer.Write(frame);return stream.ToArray();
+    }
+    public static System.Drawing.Icon TrayIcon(bool connected) {
+        using var stream=new MemoryStream(IconBytes(connected));using var icon=new System.Drawing.Icon(stream,32,32);return (System.Drawing.Icon)icon.Clone();
+    }
+    public static BitmapFrame AppIcon(){
+        using var stream=Assembly.GetExecutingAssembly().GetManifestResourceStream("CadToolkitSetup.brand.ico")!;
+        var decoder=new IconBitmapDecoder(stream,BitmapCreateOptions.PreservePixelFormat,BitmapCacheOption.OnLoad);
+        return decoder.Frames.OrderByDescending(f=>f.PixelWidth).First();
     }
     public static Image NativeIcon(string kind,bool file=false,double size=26) {
         string name=kind+ (file?"-file":"-app")+".png";

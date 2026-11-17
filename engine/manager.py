@@ -9,6 +9,7 @@ import shutil
 import sys
 import tempfile
 import traceback
+import copy
 
 sys.path.insert(0, str(Path(__file__).parent / "vendor"))
 from common import COMPONENTS, SKILLS, atomic_json, extract_zip, install_lock, read_json, run, sha256, within
@@ -76,7 +77,7 @@ def plugin_files(destination, template, commands, version, env, history_root=Non
         if history_root:
             tools_dir = destination / "tools"
             tools_dir.mkdir(exist_ok=True)
-            for helper in ("relay.py", "history.py", "rhino_instances.py"):
+            for helper in ("relay.py", "history.py", "rhino_instances.py", "rhino_router.py", "window_store.py", "window_scan.py", "probe.py", "cad_launch.py"):
                 shutil.copy2(Path(__file__).with_name(helper), tools_dir / helper)
             python = Path(cmd[0]).with_name("python.exe")
             cmd = [str(python), "-X", "utf8", str(tools_dir / "relay.py"), "--root", str(history_root), "--component", name, "--", *cmd]
@@ -278,6 +279,65 @@ class Manager:
                    if result['restart_required'] else '外掛已安裝。現在開啟 Rhino，文件準備好後會自動連線。')
         emit(message, step='configure_rhino', component='rhino', outcome='completed', result=result)
 
+    def update(self, payload, selected, setup=None):
+        """Upgrade the installed set while preserving user policy and root data."""
+        installed = set(self.state['active']) | set((self.state.get('candidate') or {}).get('selected', []))
+        if set(selected) != installed or not installed:
+            raise RuntimeError('更新必須沿用目前已安裝的 MCP 清單。')
+        if any(processes({'rhino':'Rhino.exe','autocad':'acad.exe','inventor':'Inventor.exe'}[c]) for c in selected):
+            raise RuntimeError('請先儲存並關閉 CAD 軟體，再重新按更新。')
+        before = copy.deepcopy(self.state)
+        policy = copy.deepcopy(self.config.load().get('plugins', {}).get('cad-toolkit@cad-toolkit-local', {}))
+        backup = self.root / 'backups' / ('update-' + dt.datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
+        backup.mkdir(parents=True)
+        atomic_json(backup / 'state.json', before)
+        for name in ('ui-state.json', 'updates.json', 'McpToolkit.exe', 'CadToolkitSetup.exe'):
+            path = self.root / name
+            if path.is_file(): shutil.copy2(path, backup / name)
+        if (self.root / 'windows.sqlite3').exists():
+            import sqlite3
+            with sqlite3.connect(self.root / 'windows.sqlite3') as src, sqlite3.connect(backup / 'windows.sqlite3') as dst: src.backup(dst)
+        enabled = {c for c in selected if policy.get('mcp_servers', {}).get(c, {}).get('enabled', c in before['active'])}
+        def restore_policy():
+            doc = self.config.load()
+            doc.setdefault('plugins', {})['cad-toolkit@cad-toolkit-local'] = copy.deepcopy(policy)
+            self.config.save(doc)
+        try:
+            self.install(payload, selected, defer_plugin=True)
+            for c in selected:
+                if c == 'rhino': self.configure_rhino()
+                elif c == 'autocad': self.configure_autocad()
+            target = self.state['candidate']['path']
+            desired = {c: target for c in before['active']}
+            self.register_plugin(desired, target, enabled)
+            restore_policy()
+            self.state['previous'] = before['active']
+            self.state['active'] = desired
+            self.state['auto_enable_pending'] = before.get('auto_enable_pending', [])
+            self.save()
+            if setup: self.register_windows(Path(setup))
+        except Exception:
+            self.state = before
+            self.save()
+            try:
+                old = (before.get('candidate') or {}).get('path') or next(iter(before['active'].values()), None)
+                if old:
+                    self.register_plugin(before['active'], old, enabled)
+                    if 'autocad' in selected:
+                        from autocad_setup import install_bundle
+                        install_bundle(before['active'].get('autocad', old))
+                    if 'rhino' in selected:
+                        from rhino_setup import install_plugin
+                        install_plugin(before['active'].get('rhino', old))
+                for name in ('McpToolkit.exe', 'CadToolkitSetup.exe'):
+                    if (backup / name).exists(): shutil.copy2(backup / name, self.root / name)
+            finally:
+                restore_policy()
+                self.state = before
+                self.save()
+            raise
+        emit('更新完成。原安裝位置、啟用設定、視窗名稱與指令紀錄已保留，請重新啟動 Codex。', step='update', outcome='completed', backup=str(backup))
+
     def configure_autocad(self):
         from autocad_setup import install_bundle
         candidate = self.state.get('candidate')
@@ -327,8 +387,9 @@ class Manager:
                 # Always distinguish successful MCP startup from successful CAD communication.
                 env = mcp_env(self.root)
                 if c == 'rhino':
-                    from rhino_instances import choose
-                    instance = choose(self.root, [int(p['pid']) for p in proc])
+                    from rhino_instances import collect
+                    instances = [v for v in collect([int(p['pid']) for p in proc]) if v.get('guard_protocol') == 1]
+                    instance = instances[0] if instances else None  # Read-only health check, never a conversation target.
                     if instance:
                         env['RHINO_MCP_PORT'] = str(instance['port'])
                         proc = [p for p in proc if int(p['pid']) == instance['pid']]
@@ -362,6 +423,8 @@ class Manager:
                         caps = client.call("describe_capabilities")
                         if not isinstance(caps, dict) or caps.get("plugin_matches_server") is not True:
                             raise RuntimeError("Rhino 外掛與 MCP 版本未確認一致：" + str(caps))
+                        if caps.get("toolkit_guard_protocol") != 1:
+                            raise RuntimeError("請更新配對的 Rhino MCP 外掛並重新開啟 Rhino，以啟用視窗綁定。")
                         status["capabilities"] = caps
                         status["document"] = client.call("get_document_summary")
                     else:
@@ -452,8 +515,19 @@ class Manager:
         emit("已還原上一組 MCP 設定；請重新啟動 Codex 對話。", active=previous)
 
     def uninstall(self):
-        if processes("Rhino.exe") and "rhino" in self.state["active"]:
-            raise RuntimeError("請先自行儲存工作並關閉 Rhino，再解除安裝")
+        if any(processes(name) for name in ('Rhino.exe','acad.exe','Inventor.exe')):
+            raise RuntimeError("請先自行儲存工作並關閉 CAD，再解除安裝")
+        targets = set(self.state['active'].values()) | set((self.state.get('previous') or {}).values())
+        if self.state.get('candidate'): targets.add(self.state['candidate']['path'])
+        versions = self.root / 'versions'
+        if versions.is_dir():
+            targets.update(str(p.resolve()) for p in versions.iterdir() if p.is_dir() and not p.is_symlink() and not p.is_junction() and (p / 'ready.json').is_file())
+        backup = Path(os.environ.get('LOCALAPPDATA', self.root.parent)) / 'McpToolkitBackups' / ('uninstall-' + dt.datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
+        backup.mkdir(parents=True)
+        atomic_json(backup / 'state.json', self.state)
+        for name in ('ui-state.json','updates.json','windows.sqlite3','windows.sqlite3-wal','windows.sqlite3-shm','history.sqlite3'):
+            if (self.root / name).is_file(): shutil.copy2(self.root / name, backup / name)
+        if self.config.path.is_file(): shutil.copy2(self.config.path, backup / 'config-before.toml')
         self.checkpoint()
         emit("正在移除 Toolkit 設定並還原舊設定，請等候完成。", step="configure", cancellable=False)
         self.config.set_policy(set(), self.state["originals"])
@@ -467,11 +541,28 @@ class Manager:
         if target:
             from autocad_setup import remove_bundle
             remove_bundle(target)
+        from uninstall_cleanup import remove_rhino
+        native = remove_rhino(targets, backup)
+        atomic_json(backup / 'native-removal.json', native)
         self.state["active"] = {}; self.state['auto_enable_pending'] = []; self.state["uninstalled_at"] = utc(); self.save()
         if os.name == "nt":
             import winreg
-            try: winreg.DeleteKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Uninstall\CadToolkit")
-            except FileNotFoundError: pass
+            for product in ('CadToolkit','McpToolkit'):
+                key_path = r'Software\Microsoft\Windows\CurrentVersion\Uninstall' + '\\' + product
+                try:
+                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                        location = winreg.QueryValueEx(key, 'InstallLocation')[0]
+                    if Path(location).resolve() == self.root: winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key_path)
+                except FileNotFoundError: pass
+            if native['removed']:
+                def remove_key(path):
+                    try:
+                        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,path) as key:
+                            children=[winreg.EnumKey(key,i) for i in range(winreg.QueryInfoKey(key)[0])]
+                        for name in children: remove_key(path+'\\'+name)
+                        winreg.DeleteKey(winreg.HKEY_CURRENT_USER,path)
+                    except FileNotFoundError: pass
+                remove_key(r'Software\McNeel\Rhinoceros\8.0\Plug-ins\f0b5b632-cc3c-43e7-bc88-da29c47b98bc')
             shortcut = Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs/CAD Toolkit.lnk"
             shortcut.unlink(missing_ok=True)
             (shortcut.parent / "MCP Toolkit.lnk").unlink(missing_ok=True)
@@ -482,12 +573,12 @@ class Manager:
                         winreg.DeleteValue(key, "McpToolkit")
                 except FileNotFoundError:
                     pass
-        emit("已解除 Plugin 並還原舊設定。版本檔案與備份保留在安裝目錄，可在 CAD 關閉後手動刪除。")
+        emit("MCP 與 Plugin 已解除安裝，設定已備份；接著清除 Toolkit 安裝資料夾。", outcome='needs_action' if native['preserved'] else 'completed', backup=str(backup), preserved=native['preserved'])
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["preflight", "setup", "install", "configure_plugin", "configure_rhino", "configure_autocad", "diagnose", "activate", "rollback", "uninstall"])
-    parser.add_argument("--root", default=str(Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "CadToolkit"))
+    parser.add_argument("action", choices=["preflight", "setup", "update", "install", "configure_plugin", "configure_rhino", "configure_autocad", "diagnose", "activate", "rollback", "uninstall"])
+    parser.add_argument("--root", default=str(Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "McpToolkit"))
     parser.add_argument("--components", default="autocad,inventor,rhino")
     parser.add_argument("--payload")
     parser.add_argument("--setup")
@@ -508,6 +599,7 @@ def main():
                 manager.cancel_file = marker
             if args.action == "install": manager.install(args.payload, selected, args.setup, args.defer_plugin)
             elif args.action == "setup": manager.setup(args.payload, selected, args.setup)
+            elif args.action == "update": manager.update(args.payload, selected, args.setup)
             elif args.action == "diagnose": manager.diagnose(selected, args.active)
             elif args.action == "activate": manager.activate(selected)
             else: getattr(manager, args.action)()

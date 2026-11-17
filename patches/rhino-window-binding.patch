@@ -1,0 +1,276 @@
+diff --git a/plugin/ToolkitIdentity.cs b/plugin/ToolkitIdentity.cs
+new file mode 100644
+--- /dev/null
++++ b/plugin/ToolkitIdentity.cs
+@@ -0,0 +1,62 @@
++using System;
++using System.IO;
++using Newtonsoft.Json.Linq;
++using Rhino;
++
++namespace RhinoMCPPlugin;
++
++// Lifetime is the loaded Rhino process, independent of documents or TCP ports.
++static class ToolkitIdentity
++{
++    internal static readonly string InstanceId = Guid.NewGuid().ToString("N");
++    static long epoch;
++    static uint serial;
++    static bool initialized;
++
++    internal static void Initialize()
++    {
++        if (initialized) return;
++        initialized = true;
++        serial = RhinoDoc.ActiveDoc?.RuntimeSerialNumber ?? 0;
++        RhinoDoc.ActiveDocumentChanged += (_, _) => {
++            serial = RhinoDoc.ActiveDoc?.RuntimeSerialNumber ?? 0;
++            epoch++;
++        };
++    }
++
++    internal static JObject Context()
++    {
++        Initialize();
++        var doc = RhinoDoc.ActiveDoc;
++        uint current = doc?.RuntimeSerialNumber ?? 0;
++        if (current != serial) { serial = current; epoch++; }
++        return new JObject {
++            ["guard_protocol"] = 1, ["instance_id"] = InstanceId,
++            ["hwnd"] = RhinoApp.MainWindowHandle().ToInt64(),
++            ["document_serial"] = serial, ["document_epoch"] = epoch,
++            ["document"] = doc?.Name, ["documentPath"] = doc?.Path
++        };
++    }
++
++    internal static JObject Validate(JObject guard, bool readOnly)
++    {
++        if (guard == null) return null; // Existing standalone clients remain compatible.
++        var current = Context();
++        string code = null, message = null;
++        if ((int?)guard["protocol"] != 1 || (string)guard["instance_id"] != InstanceId || (long?)guard["hwnd"] != (long)current["hwnd"])
++        { code = "window_mismatch"; message = "Rhino 視窗身分已改變。請回 MCP Toolkit 重新選窗；此次工具未執行。"; }
++        else if (!readOnly && ((long?)guard["document_serial"] != (long)current["document_serial"] || (long?)guard["document_epoch"] != (long)current["document_epoch"]))
++        { code = "document_changed"; message = "Rhino 已切換文件。請在 MCP Toolkit 確認文件，再重新送出指令；此次工具未執行。"; }
++        return code == null ? null : new JObject { ["status"] = "error", ["code"] = code, ["message"] = message };
++    }
++
++    internal static string TitleName()
++    {
++        try {
++            string file = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RhinoMCP", "names", InstanceId + ".json");
++            var data = JObject.Parse(File.ReadAllText(file));
++            string name = (string)data["name"];
++            return (bool?)data["enabled"] == true && !string.IsNullOrWhiteSpace(name) && name.Length <= 48 && name.IndexOfAny(new[]{'[',']','\r','\n'}) < 0 ? name : null;
++        } catch (Exception) { return null; }
++    }
++}
+diff --git a/plugin/RhinoMCPPlugin.cs b/plugin/RhinoMCPPlugin.cs
+--- a/plugin/RhinoMCPPlugin.cs
++++ b/plugin/RhinoMCPPlugin.cs
+@@ -26,6 +26,7 @@
+ 
+         protected override LoadReturnCode OnLoad(ref string errorMessage)
+         {
++            ToolkitIdentity.Initialize();
+             // Loading a plug-in does not guarantee that the first document or
+             // window is ready. Start once from Rhino's UI idle event instead.
+             RhinoApp.Idle += StartBridgeWhenReady;
+diff --git a/plugin/InstanceStatusFile.cs b/plugin/InstanceStatusFile.cs
+--- a/plugin/InstanceStatusFile.cs
++++ b/plugin/InstanceStatusFile.cs
+@@ -90,6 +90,8 @@
+                 })),
+             };
+ 
++            status.Merge(ToolkitIdentity.Context());
++
+             string json = status.ToString();
+             if (json == lastJson) return;
+             try
+diff --git a/plugin/RhinoMCPServer.cs b/plugin/RhinoMCPServer.cs
+--- a/plugin/RhinoMCPServer.cs
++++ b/plugin/RhinoMCPServer.cs
+@@ -430,6 +430,7 @@
+                 try
+                 {
+                     JObject response = ExecuteCommand(command);
++                    response["_toolkit"] = ToolkitIdentity.Context();
+                     string responseJson = JsonConvert.SerializeObject(response);
+ 
+                     try
+@@ -487,6 +488,10 @@
+             {
+                 string cmdType = command["type"]?.ToString();
+                 JObject parameters = command["params"] as JObject ?? new JObject();
++                var table = handler.GetDispatchTable();
++                bool readOnly = table.TryGetValue(cmdType ?? "", out var entry) && entry.ReadOnly;
++                var refusal = ToolkitIdentity.Validate(command["toolkit_guard"] as JObject, readOnly);
++                if (refusal != null) return refusal;
+                 // Opt-in perception flag, carried on the envelope (not in params)
+                 // so it never collides with a command's own parameters. Defaults
+                 // off, so behavior is unchanged unless a client asks for it.
+diff --git a/plugin/Functions/DescribeCapabilities.cs b/plugin/Functions/DescribeCapabilities.cs
+--- a/plugin/Functions/DescribeCapabilities.cs
++++ b/plugin/Functions/DescribeCapabilities.cs
+@@ -64,6 +64,7 @@
+         return new JObject
+         {
+             ["version"] = GetPluginVersion(),
++            ["toolkit_guard_protocol"] = 1,
+             ["command_count"] = commands.Count,
+             ["commands"] = commands,
+             ["perception"] = new JObject
+diff --git a/plugin/WindowTitleTag.cs b/plugin/WindowTitleTag.cs
+--- a/plugin/WindowTitleTag.cs
++++ b/plugin/WindowTitleTag.cs
+@@ -18,13 +18,15 @@
+         private const int WM_MDIGETACTIVE = 0x0229;
+ 
+         private static string tag;
++        private static string defaultTag;
++        private static DateTime checkedAt;
+ 
+         public static void Show(string text)
+         {
+             if (!OperatingSystem.IsWindows()) return;
+ 
+             Clear();
+-            tag = $"[{text}] ";
++            defaultTag = tag = $"[{text}] ";
+             Apply();
+             RhinoApp.Idle += OnIdle;
+         }
+@@ -54,6 +56,17 @@
+             if (tag == null || hwnd == IntPtr.Zero) return;
+ 
+             string title = FrameTitle(hwnd);
++            if (DateTime.UtcNow - checkedAt > TimeSpan.FromSeconds(1))
++            {
++                checkedAt = DateTime.UtcNow;
++                string name = ToolkitIdentity.TitleName();
++                string next = name == null ? defaultTag : $"[MCP Toolkit: {name}] ";
++                if (next != tag)
++                {
++                    if (title.StartsWith(tag, StringComparison.Ordinal)) title = title.Substring(tag.Length);
++                    tag = next;
++                }
++            }
+             if (!title.StartsWith(tag, StringComparison.Ordinal))
+             {
+                 SetWindowTextW(hwnd, tag + title);
+diff --git a/plugin/rhinomcp.csproj b/plugin/rhinomcp.csproj
+--- a/plugin/rhinomcp.csproj
++++ b/plugin/rhinomcp.csproj
+@@ -9,7 +9,7 @@
+   
+   <PropertyGroup>
+     <!-- Specifies information for Assembly and Yak -->
+-    <Version>0.5.2</Version>
++    <Version>0.5.3</Version>
+     <Title>rhinomcp</Title>
+     <Company>Jingcheng Chen</Company>
+     <Description>Rhino integration through the Model Context Protocol</Description>
+diff --git a/plugin/manifest.yml b/plugin/manifest.yml
+--- a/plugin/manifest.yml
++++ b/plugin/manifest.yml
+@@ -1,5 +1,5 @@
+ name: rhinomcp
+-version: 0.5.2
++version: 0.5.3
+ authors:
+   - Jingcheng Chen
+ description: Rhino integration through the Model Context Protocol
+diff --git a/server/pyproject.toml b/server/pyproject.toml
+--- a/server/pyproject.toml
++++ b/server/pyproject.toml
+@@ -1,6 +1,6 @@
+ [project]
+ name = "rhinomcp"
+-version = "0.5.2"
++version = "0.5.3"
+ description = "Rhino integration through the Model Context Protocol"
+ readme = "README.md"
+ requires-python = ">=3.10"
+diff --git a/server/src/rhinomcp/server.py b/server/src/rhinomcp/server.py
+--- a/server/src/rhinomcp/server.py
++++ b/server/src/rhinomcp/server.py
+@@ -11,6 +11,7 @@
+ import os
+ import threading
+ import time
++from pathlib import Path
+ from dataclasses import dataclass
+ from importlib.metadata import PackageNotFoundError, version as _pkg_version
+ from contextlib import asynccontextmanager
+@@ -476,6 +477,8 @@
+         - dry_run keeps its explicit opt-in gate.
+         """
+         capabilities = self._plugin_capabilities()
++        if os.environ.get("RHINO_MCP_GUARD_FILE") and (not capabilities or capabilities.get("toolkit_guard_protocol") != 1):
++            raise RhinoError("無法確認 Rhino 的視窗保護協定。請更新配對外掛；此次操作未送出。")
+         version_text = self._plugin_version_text()
+         since = COMMANDS_SINCE.get(command_type)
+ 
+@@ -616,6 +619,17 @@
+             raise ConnectionError(rhino_startup_error_message(self.host, self.port))
+ 
+         command = {"type": command_type, "params": params or {}}
++        guard_file = os.environ.get("RHINO_MCP_GUARD_FILE")
++        if guard_file:
++            # Toolkit's router serializes the entire tool call and atomically
++            # publishes this binding's guard. Missing guards never fall back.
++            try:
++                guard = json.loads(Path(guard_file).read_text(encoding="utf-8"))
++                if guard.get("protocol") != 1 or not guard.get("instance_id"):
++                    raise ValueError("Invalid binding guard")
++                command["toolkit_guard"] = guard
++            except (OSError, ValueError) as exc:
++                raise RhinoError("Toolkit 視窗綁定已失效，請重新選窗。") from exc
+         if RHINO_PERCEPTION:
+             # Envelope-level flags, kept out of params so they never collide with a
+             # command's own parameters or trip params schema validation. The plugin
+@@ -625,6 +639,7 @@
+             command["include_delta"] = True
+             command["include_health"] = True
+ 
++        sent = received = False
+         try:
+             # Log the command being sent
+             logger.info(f"Sending command: {command_type}")
+@@ -640,6 +655,7 @@
+             )
+             command_bytes = command_json.encode("utf-8")
+             header = len(command_bytes).to_bytes(FRAME_HEADER_SIZE, "big")
++            sent = True
+             self.sock.sendall(header + command_bytes)
+             logger.debug("Command sent, waiting for response...")
+ 
+@@ -651,6 +667,15 @@
+             logger.debug(f"Received {len(response_data)} bytes of data")
+ 
+             response = json.loads(response_data.decode("utf-8"))
++            received = True
++            if guard_file:
++                context = response.get("_toolkit")
++                if not context or context.get("guard_protocol") != 1:
++                    raise RhinoError("請更新配對的 Rhino MCP 外掛；缺少視窗身分檢查，連線已拒絕。")
++                observed = Path(guard_file + ".observed")
++                temporary = observed.with_suffix(".tmp")
++                temporary.write_text(json.dumps(context), encoding="utf-8")
++                temporary.replace(observed)
+             logger.info(f"Response status: {response.get('status', 'unknown')}")
+             logger.debug(f"Full response: {json.dumps(response, indent=2)[:1000]}...")
+ 
+@@ -780,6 +805,11 @@
+             # Don't try to reconnect here - let the get_rhino_connection handle reconnection
+             self.disconnect()
+             raise Exception(f"Communication error with Rhino: {str(e)}")
++        finally:
++            if guard_file and sent and not received:
++                # A sent command with no complete response has an unknown
++                # outcome. The Toolkit must not replay it or transfer the frame.
++                Path(guard_file + ".uncertain").write_text("unknown", encoding="utf-8")
+ 
+ 
+ @asynccontextmanager

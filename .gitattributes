@@ -1,0 +1,2 @@
+# Patch hashes are pinned in sources.json; preserve exact bytes.
+patches/*.patch -text -whitespace

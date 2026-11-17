@@ -7,14 +7,7 @@ import sys
 import threading
 import uuid
 import history
-
-
-def rhino_processes():
-    import csv
-    value = subprocess.run(["tasklist.exe", "/FI", "IMAGENAME eq Rhino.exe", "/FO", "CSV", "/NH"],
-                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5,
-                           creationflags=0x08000000)
-    return [int(row[1]) for row in csv.reader(value.stdout.splitlines()) if len(row) > 1 and row[0].lower() == 'rhino.exe']
+from cad_launch import ensure_started, wait_for_application, tools as application_tools
 
 
 def tool_failed(message):
@@ -42,12 +35,9 @@ def tool_failed(message):
 
 
 def run(root, component, command, cwd=None, env=None):
-    rhino_instance = None
     if component == "rhino":
-        from rhino_instances import choose
-        rhino_instance = choose(root, rhino_processes())
-        if rhino_instance:
-            env = {**os.environ, **(env or {}), "RHINO_MCP_PORT": str(rhino_instance["port"])}
+        from rhino_router import run as route
+        return route(root, command, cwd, env)
     child = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                              stderr=sys.stderr.buffer, creationflags=0x08000000 if os.name == "nt" else 0)
     pending = {}
@@ -67,27 +57,25 @@ def run(root, component, command, cwd=None, env=None):
             pass  # Telemetry must never break a CAD command or pollute stdout.
 
     def requests():
-        nonlocal rhino_instance
         try:
             for line in sys.stdin.buffer:
                 try:
                     message = json.loads(line)
+                    if message.get("method") == "tools/call" and "id" in message and message.get("params",{}).get("name") in ("open_application", "get_application_state"):
+                        tool = message["params"]["name"]
+                        arguments = message["params"].get("arguments") or {}
+                        try:
+                            value = ensure_started(root, component) if tool == "open_application" else wait_for_application(root, component, arguments.get("wait_seconds",30))
+                            answer = {"isError":value["state"] in ("not_installed","needs_attention"),"content":[{"type":"text","text":json.dumps(value,ensure_ascii=False)}]}
+                        except Exception as exc:
+                            answer = {"isError":True,"content":[{"type":"text","text":str(exc)}]}
+                        emit((json.dumps({"jsonrpc":"2.0","id":message["id"],"result":answer},ensure_ascii=True)+"\n").encode("utf-8"))
+                        continue
                     if message.get("method") == "tools/call" and "id" in message:
                         key = json.dumps(message["id"])
                         identity = prefix + ":" + key
                         tool = message.get("params", {}).get("name", "unknown")
                         receipt(history.started, identity, component, tool)
-                        if component == 'rhino' and tool not in ('get_modeling_guidance', 'get_rhinoscript_docs', 'search_rhinoscript_functions', 'list_rhinoscript_modules', 'get_module_functions'):
-                            from rhino_instances import choose
-                            choice = choose(root, rhino_processes())
-                            port = int((env or os.environ).get('RHINO_MCP_PORT', '1999'))
-                            valid = choice and choice['port'] == port and (rhino_instance is None or (choice['pid'], choice['processStart']) == (rhino_instance['pid'], rhino_instance['processStart']))
-                            if not valid:
-                                receipt(history.finished, identity, 'blocked')
-                                reply = {'jsonrpc': '2.0', 'id': message['id'], 'result': {'isError': True, 'content': [{'type': 'text', 'text': '請在 MCP Toolkit 選擇正在執行的 Rhino，並在 Codex 開啟新對話；此次工具未執行。'}]}}
-                                emit((json.dumps(reply, ensure_ascii=True)+'\n').encode('utf-8'))
-                                continue
-                            rhino_instance = choice
                         with lock:
                             pending[key] = identity
                 except (ValueError, AttributeError, TypeError):
@@ -108,6 +96,14 @@ def run(root, component, command, cwd=None, env=None):
         for line in child.stdout:
             try:
                 message = json.loads(line)
+                if isinstance(message.get("result"),dict):
+                    result = message["result"]
+                    if "tools" in result:
+                        result["tools"].extend(application_tools())
+                        line = (json.dumps(message,ensure_ascii=True)+"\n").encode("utf-8")
+                    elif "serverInfo" in result:
+                        result["instructions"] = result.get("instructions","")+"\nBefore CAD operations, use open_application and get_application_state to obtain a visible main window. Never launch CAD with hidden shell flags, and never start a second process while the first is starting. A process alone is not readiness. Check the MCP bridge after the window opens. Do not ask the user for APPLOAD or manual connection commands; use Toolkit's installation/repair flow when necessary."
+                        line = (json.dumps(message,ensure_ascii=True)+"\n").encode("utf-8")
                 if "id" in message:
                     with lock:
                         identity = pending.pop(json.dumps(message["id"]), None)

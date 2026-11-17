@@ -29,13 +29,13 @@ public sealed class ToolkitService
         http = client ?? new HttpClient { Timeout = TimeSpan.FromMinutes(20) };
         using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("CadToolkitSetup.release.json")!;
         release = JsonDocument.Parse(stream).RootElement.Clone();
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("CadToolkit/0.2");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("McpToolkit/"+Version);
     }
     public void RequestStop() { Directory.CreateDirectory(root); File.WriteAllText(CancelFile, "stop"); }
     public async Task Download(string url, string file, string expected)
     {
         if (!url.StartsWith("https://github.com/allen2123231/cad-toolkit/releases/download/", StringComparison.Ordinal))
-            throw new InvalidDataException("下載網址不是 CAD Toolkit 發布來源。");
+            throw new InvalidDataException("下載網址不是 MCP Toolkit 發布來源。");
         Directory.CreateDirectory(Path.GetDirectoryName(file)!);
         var temp = file + "." + Guid.NewGuid().ToString("N") + ".part";
         try
@@ -105,14 +105,21 @@ public sealed class ToolkitService
         string selected = string.Join(",", components);
         var events = new List<JsonElement>();
         if (selected.Length == 0) throw new InvalidOperationException("請至少選擇一套 CAD。");
-        string payload = await Payload();
+        string payload = action=="uninstall"?InstalledPayload():await Payload();
         var start = new ProcessStartInfo(Path.Combine(payload, "runtime", "python.exe")) {
             UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
             StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8 };
         if(ExperienceState.Codex() is string codex)start.Environment["MCP_TOOLKIT_CODEX"]=codex;
-        foreach(var arg in new[] { "-X", "utf8", Path.Combine(payload, "engine", "manager.py"), action,
+        string engine=Path.Combine(payload,"engine","manager.py");
+        if(action=="uninstall"){
+            string folder=Path.Combine(AppContext.BaseDirectory,"uninstall-engine");Directory.CreateDirectory(folder);
+            var assembly=Assembly.GetExecutingAssembly();
+            foreach(string name in assembly.GetManifestResourceNames().Where(n=>n.StartsWith("CadToolkitSetup.engine."))){using var input=assembly.GetManifestResourceStream(name)!;using var output=File.Create(Path.Combine(folder,name[23..]));input.CopyTo(output);}
+            engine=Path.Combine(folder,"manager.py");start.Environment["PYTHONPATH"]=Path.Combine(payload,"engine","vendor");
+        }
+        foreach(var arg in new[] { "-X", "utf8", engine, action,
                                   "--root", root, "--components", selected }) start.ArgumentList.Add(arg);
-        if (action == "install" || action == "setup")
+        if (action is "install" or "setup" or "update")
         {
             start.ArgumentList.Add("--payload"); start.ArgumentList.Add(payload);
             start.ArgumentList.Add("--setup"); start.ArgumentList.Add(Environment.ProcessPath!);
@@ -163,12 +170,18 @@ public sealed class ToolkitService
         }
         return ap.Length.CompareTo(bp.Length);
     }
-    public async Task CheckUpdate()
+    string InstalledPayload(){
+        var state=ExperienceState.Read(root);var paths=new List<string>();
+        if(state.TryGetProperty("active",out var active))paths.AddRange(active.EnumerateObject().Select(p=>p.Value.GetString()!));
+        if(state.TryGetProperty("candidate",out var candidate)&&candidate.ValueKind==JsonValueKind.Object)paths.Add(ExperienceState.Text(candidate,"path"));
+        return paths.Select(p=>Path.Combine(p,"payload")).FirstOrDefault(p=>File.Exists(Path.Combine(p,"runtime/python.exe")))??throw new InvalidOperationException("找不到已安裝環境，請使用同版本安裝程式修復後再解除安裝。");
+    }
+    public async Task CheckUpdate(bool? includeBeta=null)
     {
         string current = release.GetProperty("version").GetString()!;
         using var data = JsonDocument.Parse(await http.GetStringAsync("https://api.github.com/repos/allen2123231/cad-toolkit/releases?per_page=30", Token));
         var candidates = data.RootElement.EnumerateArray().Where(r => !r.GetProperty("draft").GetBoolean()
-            && (current.Contains('-') || !r.GetProperty("prerelease").GetBoolean())).ToList();
+            && ((includeBeta??current.Contains('-')) || !r.GetProperty("prerelease").GetBoolean())).ToList();
         candidates = candidates.Where(r => Regex.IsMatch(r.GetProperty("tag_name").GetString()!, @"^v\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?$")).ToList();
         candidates.Sort((a, b) => CompareVersions(b.GetProperty("tag_name").GetString()!, a.GetProperty("tag_name").GetString()!));
         if (candidates.Count == 0 || CompareVersions(candidates[0].GetProperty("tag_name").GetString()!, current) <= 0)
@@ -180,7 +193,14 @@ public sealed class ToolkitService
         if (!manifestUrl.StartsWith("https://github.com/allen2123231/cad-toolkit/releases/download/")) throw new InvalidDataException("發布來源不符");
         using var descriptor = JsonDocument.Parse(await http.GetStringAsync(manifestUrl, Token));
         if ("v" + descriptor.RootElement.GetProperty("version").GetString() != latest.GetProperty("tag_name").GetString()) throw new InvalidDataException("版本清單不一致");
-        update = descriptor.RootElement.Clone();
+        var value=System.Text.Json.Nodes.JsonNode.Parse(descriptor.RootElement.GetRawText())!.AsObject();
+        foreach(string kind in new[]{"setup","payload"}){
+            var spec=descriptor.RootElement.GetProperty(kind);
+            if(!Regex.IsMatch(spec.GetProperty("sha256").GetString()??"","^[a-fA-F0-9]{64}$")||!spec.GetProperty("url").GetString()!.StartsWith("https://github.com/allen2123231/cad-toolkit/releases/download/v"+descriptor.RootElement.GetProperty("version").GetString()+"/",StringComparison.Ordinal))throw new InvalidDataException("新版安裝清單不完整或來源不符。");
+        }
+        value["notes"]=latest.TryGetProperty("body",out var notes)?notes.GetString():"";
+        value["release_url"]=latest.GetProperty("html_url").GetString();value["beta"]=latest.GetProperty("prerelease").GetBoolean();
+        update=JsonSerializer.SerializeToElement(value);
         Log("新版可用：" + update.Value.GetProperty("version").GetString() + "。按「一鍵更新」下載並安裝；現有版本會保留。\n" + latest.GetProperty("html_url").GetString());
     }
 

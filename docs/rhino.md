@@ -6,7 +6,7 @@
 
 完整管理 → 安裝與版本 → 安裝／修復 Rhino MCP
 
-固定採用本分支 RhinoMCP 0.5.2，已驗證正常啟動、自動橋接與新文件圓柱建模。Toolkit 完整乾淨 Windows 流程仍待驗收。
+固定採用本分支 RhinoMCP 0.5.3，已驗證自動橋接、每段對話獨立選窗、文件切換保護與雙視窗圓柱建模。Toolkit 完整乾淨 Windows 流程仍待驗收。
 
 ![MCP Toolkit 新安裝介面實際渲染](images/mcp-install.png)
 

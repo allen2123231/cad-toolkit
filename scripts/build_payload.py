@@ -59,6 +59,26 @@ def main():
         source_root = build / "sources" / name / spec["commit"]
         if not source_root.exists(): extract_zip(archive, source_root)
         source = next(source_root.iterdir())
+        if spec.get("patch"):
+            patch_file = ROOT / spec["patch"]
+            if sha256(patch_file) != spec["patch_sha256"]:
+                raise ValueError("Source patch checksum mismatch")
+            patched = build / "patched" / name / spec["patch_sha256"]
+            if not (patched / ".toolkit-patch-applied").exists():
+                if patched.resolve().parent != (build / "patched" / name).resolve():
+                    raise ValueError("Unexpected patched source directory")
+                if patched.exists(): shutil.rmtree(patched)
+                shutil.copytree(source, patched)
+                run(["git", "init", "--quiet", patched])
+                run(["git", "-C", patched, "config", "core.autocrlf", "false"])
+                for line in patch_file.read_text(encoding="utf-8").splitlines():
+                    if line.startswith("+++ b/"):
+                        file = patched / line[6:]
+                        if file.exists(): file.write_text(file.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
+                run(["git", "-C", patched, "apply", "--check", patch_file])
+                run(["git", "-C", patched, "apply", patch_file])
+                (patched / ".toolkit-patch-applied").write_text(spec["patch_sha256"])
+            source = patched
         project = source / spec["subdir"]
         lock = ROOT / "locks" / (name + ".txt")
         if args.refresh_locks or not lock.exists():
@@ -72,6 +92,7 @@ def main():
         wheel_dir = payload / "wheels" / name
         wheel_dir.mkdir(parents=True, exist_ok=True)
         project_wheels = build / "project-wheels" / name / spec["commit"]
+        if spec.get("patch_sha256"): project_wheels = project_wheels / spec["patch_sha256"]
         run([uv, "build", "--wheel", "--out-dir", project_wheels, str(project)], env=env)
         wheels = list(project_wheels.glob("*.whl"))
         if len(wheels) != 1: raise ValueError(f"Expected one project wheel for {name}")
@@ -87,17 +108,29 @@ def main():
         for license_file in source.glob("LICENSE*"): shutil.copy2(license_file, licenses / license_file.name)
         if name == "autocad": shutil.copytree(source / "lisp-code", payload / "cad/autocad", dirs_exist_ok=True)
         if name == "rhino":
-            asset = spec["plugin_asset"]
+            asset = spec.get("plugin_asset", {"version": spec["package_version"]})
             if tomllib.loads((project / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"] != asset["version"]:
                 raise ValueError("Rhino Python and plugin versions must match")
-            package = build / "native" / Path(asset["url"]).name
-            if not package.exists() or sha256(package) != asset["sha256"]:
-                download(asset["url"], package, asset["sha256"])
-            native = build / "native" / asset["sha256"]
-            if not native.exists(): extract_zip(package, native)
+            if spec.get("build_plugin"):
+                run([args.dotnet, "build", source / "plugin/rhinomcp.csproj", "-c", "Release", "--nologo"], timeout=300)
+                native = build / "native" / spec["patch_sha256"]
+                (native / "net8.0").mkdir(parents=True, exist_ok=True)
+                shutil.copytree(source / "plugin/bin/Release/net8.0", native / "net8.0", dirs_exist_ok=True)
+                shutil.copy2(source / "plugin/manifest.yml", native / "manifest.yml")
+                package = build / "native" / f"rhinomcp-{asset['version']}-rh8_17-win.yak"
+                with zipfile.ZipFile(package, "w", zipfile.ZIP_DEFLATED) as z:
+                    for file in sorted(native.rglob("*")):
+                        if file.is_file(): z.write(file, file.relative_to(native))
+                asset = {"version": asset["version"], "sha256": sha256(package), "source": "pinned-commit-and-hashed-patch"}
+            else:
+                package = build / "native" / Path(asset["url"]).name
+                if not package.exists() or sha256(package) != asset["sha256"]:
+                    download(asset["url"], package, asset["sha256"])
+                native = build / "native" / asset["sha256"]
+                if not native.exists(): extract_zip(package, native)
             shutil.copytree(native / "net8.0", payload / "cad/rhino", dirs_exist_ok=True)
             shutil.copy2(package, payload / "cad/rhino" / package.name)
-            spec = {**spec, "plugin_file": package.name}
+            spec = {**spec, "plugin_asset": asset, "plugin_file": package.name}
         components[name] = {**spec, "wheel": wheel.name}
     files = {p.relative_to(payload).as_posix(): sha256(p) for p in sorted(payload.rglob("*"))
              if p.is_file() and p.name != "bundle.json" and "__pycache__" not in p.parts}

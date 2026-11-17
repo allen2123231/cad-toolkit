@@ -82,7 +82,7 @@
     "title": "安裝 Rhino 外掛，自動連線",
     "purpose": "在新安裝介面選擇 Rhino MCP，程式會自動完成連線設定。",
     "location": "完整管理 → 安裝與版本 → 安裝／修復 Rhino MCP",
-    "version": "固定採用本分支 RhinoMCP 0.5.2，已驗證正常啟動、自動橋接與新文件圓柱建模。Toolkit 完整乾淨 Windows 流程仍待驗收。",
+    "version": "固定採用本分支 RhinoMCP 0.5.3，已驗證自動橋接、每段對話獨立選窗、文件切換保護與雙視窗圓柱建模。Toolkit 完整乾淨 Windows 流程仍待驗收。",
     "command": "",
     "diagram": [
       "1  選擇 Rhino MCP，按安裝所選 MCP",

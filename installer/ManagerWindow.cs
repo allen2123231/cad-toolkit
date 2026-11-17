@@ -18,8 +18,9 @@ public sealed class ManagerWindow : Window
     string page="overview";
     public ManagerWindow(RuntimeHost host,Action<string?,int?> setup) {
         this.host=host;this.setup=setup;
+        System.Windows.Automation.AutomationProperties.SetAutomationId(this,"manager-"+ToolkitApplication.Identity(host.Root));
         Title="MCP Toolkit";Width=1050;Height=790;MinWidth=700;MinHeight=530;WindowStartupLocation=WindowStartupLocation.CenterScreen;
-        Icon=((Image)Logo(32)).Source;
+        Icon=AppIcon();
         FontFamily=new FontFamily("Microsoft JhengHei UI");Background=Brushes.White;Foreground=Ink;
         Resources.Add(typeof(Button),ButtonStyle());
         var shell=new Grid{Background=Brushes.White};shell.ColumnDefinitions.Add(new(){Width=new GridLength(196)});shell.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});Content=shell;
@@ -54,7 +55,7 @@ public sealed class ManagerWindow : Window
     }
     static string Get(JsonElement r,string key,string fallback="")=>ExperienceState.Text(r,key,fallback);
     public static string Label(JsonElement row)=>Get(row,"code") switch {
-        "READY"=>"可以使用","NOT_INSTALLED"=>"需要安裝","CAD_NOT_RUNNING"=>"等待開啟","NO_DOCUMENT"=>"等待文件","NOT_ENABLED"=>"正在準備連線","SELECT_TARGET"=>"選擇視窗","VERSION_MISMATCH"=>"版本不符","BUSY"=>"指令進行中","STARTING"=>"啟動中","LICENSING_ERROR"=>"授權元件異常","CHECK_TIMEOUT"=>"等待回應",_=>"需要檢查連線"};
+        "READY"=>"可以使用","NOT_INSTALLED"=>"需要安裝","CAD_NOT_RUNNING"=>"等待開啟","BACKGROUND_ONLY"=>"等待顯示視窗","CHECKING"=>"檢查中","TARGET_MISMATCH"=>"等待連線視窗","NO_DOCUMENT"=>"等待文件","NOT_ENABLED"=>"正在準備連線","SELECT_TARGET"=>"選擇視窗","VERSION_MISMATCH"=>"版本不符","BUSY"=>"指令進行中","STARTING"=>"啟動中","LICENSING_ERROR"=>"授權元件異常","CHECK_TIMEOUT"=>"等待回應",_=>"需要檢查連線"};
     public static Brush StatusColor(JsonElement row)=>Get(row,"code")=="READY"?Color("#2F9461"):Get(row,"code") is "CAD_NOT_RUNNING" or "NOT_INSTALLED"?Muted:Color("#B17A24");
     public static FrameworkElement Status(JsonElement row) => new Border{Background=Get(row,"code")=="READY"?Color("#EDF8F0"):Soft,CornerRadius=new CornerRadius(4),Padding=new Thickness(9,3,9,3),Child=Text(Label(row),11,color:StatusColor(row)),HorizontalAlignment=HorizontalAlignment.Right};
     public static string Document(JsonElement row) {
@@ -68,18 +69,16 @@ public sealed class ManagerWindow : Window
         var panel=new StackPanel();var title=new DockPanel();var status=Status(row);DockPanel.SetDock(status,Dock.Right);title.Children.Add(status);
         var heading=new StackPanel{Orientation=Orientation.Horizontal};heading.Children.Add(NativeIcon(kind));var names=new StackPanel();names.Children.Add(Text(ExperienceState.Names.GetValueOrDefault(kind,kind),15,true));names.Children.Add(Text(Get(row,"cad_version",kind=="rhino"?"Rhino 8":""),11,color:Muted));heading.Children.Add(names);title.Children.Add(heading);panel.Children.Add(title);
         var grid=new Grid{Margin=new Thickness(0,17,0,12)};grid.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});grid.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
-        var left=new StackPanel();left.Children.Add(Text("目前文件",10,color:Muted));var file=new StackPanel{Orientation=Orientation.Horizontal};file.Children.Add(NativeIcon(kind,true,17));file.Children.Add(Text(Document(row),12));left.Children.Add(file);left.Children.Add(Text("MCP 服務",10,color:Muted));left.Children.Add(Text(Get(row,"version") is string ver&&ver.Length>0?"已安裝 "+ver:ExperienceState.Flag(row,"installed")?"已安裝 · 版本待確認":"尚未安裝",12));
+        var left=new StackPanel();int windowCount=host.Windows.Count(w=>Get(w,"kind")==kind);left.Children.Add(Text(windowCount>0?"已開啟視窗":"目前文件",10,color:Muted));var file=new StackPanel{Orientation=Orientation.Horizontal};file.Children.Add(NativeIcon(kind,windowCount==0,17));file.Children.Add(Text(windowCount>0?windowCount+" 個獨立視窗":Document(row),12));left.Children.Add(file);left.Children.Add(Text("MCP 服務",10,color:Muted));left.Children.Add(Text(Get(row,"version") is string ver&&ver.Length>0?"已安裝 "+ver:ExperienceState.Flag(row,"installed")?"已安裝 · 版本待確認":"尚未安裝",12));
         var right=new StackPanel();right.Children.Add(Text("連線方式／端口",10,color:Muted));right.Children.Add(Text(Get(row,"endpoint","尚未確認"),12));right.Children.Add(Text("版本狀態",10,color:Muted));right.Children.Add(Text(VersionLabel(row),12));Grid.SetColumn(right,1);grid.Children.Add(left);grid.Children.Add(right);panel.Children.Add(grid);
         var actions=new WrapPanel();actions.Children.Add(Button("開啟 "+ExperienceState.Names.GetValueOrDefault(kind,kind),()=>OpenCad(kind),true));actions.Children.Add(Button("重新檢查",async()=>await host.Refresh()));actions.Children.Add(Button(ExperienceState.Flag(row,"installed")?"設定／修復":"安裝 MCP",()=>setup(kind,ExperienceState.Flag(row,"installed")?4:3)));panel.Children.Add(actions);
         if(!ExperienceState.Flag(row,"managed"))panel.Children.Add(Text("既有 MCP 設定 · 可直接檢查；完成 Toolkit 安裝與啟用後會記錄最近指令。",11,color:Muted));
-        if(code=="SELECT_TARGET"&&kind=="rhino"&&row.TryGetProperty("instances",out var instances)){
-            panel.Children.Add(Text("選擇要連線的 Rhino（新 MCP 對話生效）：",12,true));
-            foreach(var instance in instances.EnumerateArray()){
-                int pid=instance.GetProperty("pid").GetInt32();string label=Get(instance,"document","未命名文件");if(label.Length==0)label="未命名文件";
-                panel.Children.Add(Button($"{label} · 端口 {Get(instance,"port")} · PID {pid}",async()=>{try{await host.Run("select","--kind","rhino","--pid",pid.ToString());await host.Refresh();}catch(Exception ex){Error(ex);}}));
-            }
+        if(kind=="rhino"){
+            panel.Children.Add(Text("由每段對話各自要求連線，Toolkit 會彈出選窗面板；這裡的檢視不會切換任何對話的目標。",11,color:Muted));
+            panel.Children.Add(Button("查看選窗與文件確認",()=>new WindowPicker(host){Owner=this}.Show()));
         }
-        if(code=="SELECT_TARGET"&&kind!="rhino")panel.Children.Add(Text("目前有多個軟體程序，請保留要操作的視窗再重新檢查。Toolkit 不會替你關閉文件。",11,color:Muted));
+        if(code=="SELECT_TARGET"&&kind!="rhino")panel.Children.Add(Text("目前可查看、命名與定位各個視窗。這套軟體的多視窗對話綁定尚未開放。",11,color:Muted));
+        foreach(var window in host.Windows.Where(w=>Get(w,"kind")==kind))WindowCards.Add(panel,host,window,this);
         var details=new StackPanel();
         details.Children.Add(Text("連線來源："+(ExperienceState.Flag(row,"managed")?"MCP Toolkit 管理":"既有獨立設定"),11,color:Muted));
         if(row.TryGetProperty("pids",out var pids))details.Children.Add(Text("程序 PID："+string.Join(", ",pids.EnumerateArray().Select(p=>p.ToString())),11,color:Muted));
@@ -89,13 +88,21 @@ public sealed class ManagerWindow : Window
         panel.Children.Add(new Expander{Header="詳細資料",Content=details,Margin=new Thickness(0,8,0,0)});
         body.Children.Add(new Border{Child=panel,BorderBrush=Line,BorderThickness=new Thickness(0,0,0,1),Padding=new Thickness(0,22,0,20)});
     }
-    void OpenCad(string kind) {
+    async void OpenCad(string kind) {
         try{
-            footer.Text=host.OpenCad(kind);
+            footer.Text=await host.OpenCad(kind);
         }catch(Exception ex){Error(ex);}
     }
     void Installations() {
         Header("安裝與版本","採用經 Toolkit 測試的固定組合，各套軟體可獨立安裝。");
+        var updates=Card("Toolkit 更新",host.Updates.Message);updates.Children.Add(Text("目前版本："+host.Version+(host.Version.Contains('-')?" · Beta 測試版":""),12));
+        var check=Button("檢查更新",async()=>await host.Updates.Check(true));check.IsEnabled=!host.Updates.Busy;updates.Children.Add(check);
+        if(host.Updates.Visible){
+            var release=host.Updates.Available!.Value;updates.Children.Add(Text("可更新至 "+host.Updates.Version,16,true));
+            updates.Children.Add(new ScrollViewer{Content=Text(ExperienceState.Text(release,"notes"),12),MaxHeight=190,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
+            var update=Button(host.Updates.Busy?"正在下載更新…":"立即更新（保留設定）",async()=>await host.Updates.Apply(),true);update.IsEnabled=!host.Updates.Busy;updates.Children.Add(update);
+            var actions=new WrapPanel();actions.Children.Add(Button("稍後提醒",host.Updates.Later));actions.Children.Add(Button("略過此版本",host.Updates.Skip));updates.Children.Add(actions);
+        }
         var own=Card("MCP Toolkit",host.Version+" · Windows x64 · 常駐管理程式");own.Children.Add(Button("查看 Toolkit 發布版本 ↗",()=>Process.Start(new ProcessStartInfo("https://github.com/allen2123231/cad-toolkit/releases"){UseShellExecute=true})));own.Children.Add(Button("安裝／加入 MCP",()=>setup(null,0)));
         foreach(var kind in new[]{"rhino","autocad","inventor"}){
             var row=host.Rows.FirstOrDefault(r=>Get(r,"id")==kind);var card=Card(ExperienceState.Names[kind],row.ValueKind==JsonValueKind.Object?VersionLabel(row):"尚未完成安裝");
@@ -105,6 +112,11 @@ public sealed class ManagerWindow : Window
     }
     void Settings() {
         Header("設定","依你的習慣啟動與管理 MCP Toolkit。");
+        var updates=Card("更新與通知","啟動時及每天背景檢查；同一版本只通知一次，未更新時面板保留提示。");
+        foreach(var item in new[]{("自動檢查更新",host.Updates.Preferences.Automatic,0),("顯示 Windows 更新通知",host.Updates.Preferences.Notifications,1),("接收 Beta 測試版更新",host.Updates.Preferences.Beta,2)}){
+            var option=new CheckBox{Content=item.Item1,IsChecked=item.Item2,Margin=new Thickness(0,8,0,0)};
+            option.Click+=(_,_)=>{bool value=option.IsChecked==true;if(item.Item3==0)host.Updates.Preferences.Automatic=value;else if(item.Item3==1)host.Updates.Preferences.Notifications=value;else host.Updates.Preferences.Beta=value;host.Updates.Save();};updates.Children.Add(option);
+        }
         var startup=Card("啟動與常駐","關閉管理視窗會縮到系統匣。從圖示的右鍵選單可完整結束程式。");
         using var key=Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");bool enabled=key?.GetValue("McpToolkit")!=null;
         var toggle=new CheckBox{Content="登入 Windows 時啟動 MCP Toolkit",IsChecked=enabled,Margin=new Thickness(0,12,0,8)};
@@ -112,12 +124,12 @@ public sealed class ManagerWindow : Window
         var privacy=Card("本機指令紀錄","只記錄 Toolkit 所管理 MCP 的新對話。保留最近 7 天、最多 2,000 筆；不會記錄參數、完整輸出或提示詞。");privacy.Children.Add(Button("清除最近指令",async()=>{if(MessageBox.Show(this,"清除這台電腦的 Toolkit 指令紀錄？","MCP Toolkit",MessageBoxButton.YesNo,MessageBoxImage.Question)!=MessageBoxResult.Yes)return;try{await host.Run("clear-history");await host.Refresh();}catch(Exception ex){Error(ex);}}));
         var config=Card("元件與問題處理","Rhino 首次安裝後需重新開啟軟體；AutoCAD 自動載入套件由安裝按鈕設定；Inventor 使用內建 COM 連線。");config.Children.Add(Button("安裝／修復 MCP",()=>setup(null,4)));
         config.Children.Add(Button("還原上一組設定",async()=>await Manage("rollback","還原上一組 MCP 設定？目前文件會保留，完成後需在 Codex 開啟新對話。")));
-        config.Children.Add(Button("解除安裝 MCP 設定",async()=>await Manage("uninstall","解除安裝 Toolkit 的 MCP 設定並還原原有連線？CAD 軟體及工作文件會保留。")));
+        config.Children.Add(Button("完整解除安裝 MCP Toolkit",()=>{try{UninstallCleanup.Launch(host.Root);}catch(Exception ex){Error(ex);}}));
     }
     public static void History(Panel parent,RuntimeHost host,int limit=80) {
         var entries=host.History.Take(limit).ToArray();
         if(entries.Length==0){var note=Text("目前沒有指令紀錄。\n啟用 Toolkit 管理的 MCP，並在 Codex 開啟新對話後，實際執行的工具會顯示在這裡。",12,color:Muted);note.Margin=new Thickness(0,24,0,20);parent.Children.Add(note);return;}
-        foreach(var item in entries){string kind=Get(item,"component");var row=new DockPanel();var state=Text(Get(item,"outcome") switch{"succeeded"=>"完成","failed"=>"失敗","interrupted"=>"已中斷","blocked"=>"未執行",_=>"執行中"},11,color:Get(item,"outcome")=="succeeded"?Color("#2F9461"):Muted);DockPanel.SetDock(state,Dock.Right);row.Children.Add(state);row.Children.Add(NativeIcon(kind,false,20));var detail=new StackPanel();detail.Children.Add(Text(Get(item,"tool"),12,true));string at=DateTimeOffset.TryParse(Get(item,"at"),out var date)?date.ToLocalTime().ToString("MM/dd HH:mm:ss"):"";detail.Children.Add(Text(ExperienceState.Names.GetValueOrDefault(kind,kind)+" · "+at+" · "+Get(item,"duration_ms","—")+" ms",10,color:Muted));row.Children.Add(detail);parent.Children.Add(new Border{Child=row,BorderBrush=Line,BorderThickness=new Thickness(0,0,0,1),Padding=new Thickness(0,13,0,13)});}
+        foreach(var item in entries){string kind=Get(item,"component");var row=new DockPanel();var state=Text(Get(item,"outcome") switch{"succeeded"=>"完成","failed"=>"失敗","interrupted"=>"已中斷","blocked"=>"未執行",_=>"執行中"},11,color:Get(item,"outcome")=="succeeded"?Color("#2F9461"):Muted);DockPanel.SetDock(state,Dock.Right);row.Children.Add(state);row.Children.Add(NativeIcon(kind,false,20));var detail=new StackPanel();detail.Children.Add(Text(Get(item,"tool"),12,true));string at=DateTimeOffset.TryParse(Get(item,"at"),out var date)?date.ToLocalTime().ToString("MM/dd HH:mm:ss"):"";detail.Children.Add(Text((Get(item,"window_name").Length>0?Get(item,"window_name")+" · "+Get(item,"connection_name"):ExperienceState.Names.GetValueOrDefault(kind,kind))+" · "+at+" · "+Get(item,"duration_ms","—")+" ms",10,color:Muted));row.Children.Add(detail);parent.Children.Add(new Border{Child=row,BorderBrush=Line,BorderThickness=new Thickness(0,0,0,1),Padding=new Thickness(0,13,0,13)});}
     }
     void Error(Exception ex){footer.Text="需要處理："+ex.Message;}
     async Task Manage(string action,string text){

@@ -30,12 +30,17 @@ public sealed class TrayPanel : Window
     }
     void Render(){
         rows.Children.Clear();footer.Text=host.Message;
+        if(host.Updates.Visible)rows.Children.Add(Button("有新版本 "+host.Updates.Version+" · 查看更新",()=>{Hide();manage("install");},true));
         if(tab=="history"){var panel=new StackPanel{Margin=new Thickness(18,0,18,0)};ManagerWindow.History(panel,host,8);rows.Children.Add(panel);return;}
         var summary=Text(host.Rows.Count(r=>ExperienceState.Text(r,"code")=="READY")+" 套可以使用",11,color:Muted);summary.Margin=new Thickness(18,4,18,0);rows.Children.Add(summary);
         if(!host.Rows.Any()){var note=Text("開始安裝 MCP 元件，讓 AI 助手連上你的軟體。",12,color:Muted);note.Margin=new Thickness(18,20,18,18);rows.Children.Add(note);}
         foreach(var row in host.Rows){
             string kind=ExperienceState.Text(row,"id");var panel=new StackPanel();var title=new DockPanel();var status=ManagerWindow.Status(row);DockPanel.SetDock(status,Dock.Right);title.Children.Add(status);title.Children.Add(NativeIcon(kind,false,21));title.Children.Add(Text(ExperienceState.Names.GetValueOrDefault(kind,kind),13,true));panel.Children.Add(title);
-            panel.Children.Add(Text(ExperienceState.Text(row,"endpoint","連線方式待確認"),11,color:Muted));var file=new StackPanel{Orientation=Orientation.Horizontal};file.Children.Add(NativeIcon(kind,true,16));file.Children.Add(Text(ManagerWindow.Document(row),11));panel.Children.Add(file);
+            foreach(var window in host.Windows.Where(w=>ExperienceState.Text(w,"kind")==kind)){
+                string name=ExperienceState.Text(window,"display_name");var mini=new StackPanel{Orientation=Orientation.Horizontal};mini.Children.Add(NativeIcon(kind,false,16));mini.Children.Add(Text(name,12,true));
+                string label=window.TryGetProperty("binding",out var owner)&&owner.ValueKind==JsonValueKind.Object?" · "+ExperienceState.Text(owner,"label"):kind=="rhino"?" · 等待對話連線":" · 可定位";mini.Children.Add(Text(label,10,color:Muted));panel.Children.Add(mini);
+            }
+            panel.Children.Add(Text(ExperienceState.Text(row,"endpoint","連線方式待確認"),11,color:Muted));var file=new StackPanel{Orientation=Orientation.Horizontal};file.Children.Add(NativeIcon(kind,true,16));file.Children.Add(Text(host.Windows.Any(w=>ExperienceState.Text(w,"kind")==kind)?"點此查看各視窗文件與端口":ManagerWindow.Document(row),11));panel.Children.Add(file);
             panel.Children.Add(Text((ExperienceState.Flag(row,"installed")?"已安裝 "+ExperienceState.Text(row,"version","版本待確認"):"需要安裝")+" · "+ManagerWindow.VersionLabel(row),10,color:Muted));
             var button=Button("",()=>{Hide();manage("overview");});button.Content=panel;button.HorizontalContentAlignment=HorizontalAlignment.Stretch;button.Background=Brushes.Transparent;button.Padding=new Thickness(18,15,18,15);button.Margin=new Thickness(0);button.BorderBrush=Line;button.BorderThickness=new Thickness(0,0,0,1);rows.Children.Add(button);
         }

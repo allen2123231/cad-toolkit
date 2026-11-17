@@ -5,6 +5,8 @@ description: 使用 Inventor MCP 建立或修改零件與組合、草圖及特�
 
 # Inventor 建模
 
+建模前先以 `get_application_state(wait_seconds=0)` 確認可見主視窗。尚未開啟或只有背景視窗時，呼叫 `open_application`，再用 `get_application_state(wait_seconds=45)` 等待 window_open；starting 時繼續等待，不啟動第二個程序。不要自行使用 shell 或隱藏模式啟動軟體。視窗出現後再檢查 MCP 橋接與目前文件。
+
 先確認已連接的應用程式、文件完整路徑、文件類型、單位及 Dirty 狀態。多個 Inventor 程序且無法確定目標時停止對文件的修改。
 
 先確認目前 MCP 的工具 schema。高階建模工具以毫米為單位；`execute_python` 操作 Inventor COM 時長度通常為公分，毫米需除以 10。

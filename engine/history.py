@@ -13,6 +13,14 @@ def connect(root):
     db = sqlite3.connect(path, timeout=3)
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("CREATE TABLE IF NOT EXISTS commands (id TEXT PRIMARY KEY, component TEXT, tool TEXT, started REAL, finished REAL, outcome TEXT, duration_ms INTEGER)")
+    columns = {r[1] for r in db.execute("PRAGMA table_info(commands)")}
+    for name in ("binding_id", "window_id", "window_name", "connection_name"):
+        if name not in columns:
+            try:
+                db.execute("ALTER TABLE commands ADD COLUMN " + name + " TEXT")
+            except sqlite3.OperationalError:
+                if name not in {r[1] for r in db.execute("PRAGMA table_info(commands)")}:
+                    raise
     try:
         with db:
             yield db
@@ -20,10 +28,10 @@ def connect(root):
         db.close()
 
 
-def started(root, identity, component, tool):
+def started(root, identity, component, tool, binding_id=None, window_id=None, window_name=None, connection_name=None):
     with connect(root) as db:
-        db.execute("INSERT OR REPLACE INTO commands VALUES (?, ?, ?, ?, NULL, 'running', NULL)",
-                   (identity, component, str(tool)[:120], time.time()))
+        db.execute("INSERT OR REPLACE INTO commands (id,component,tool,started,outcome,binding_id,window_id,window_name,connection_name) VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?)",
+                   (identity, component, str(tool)[:120], time.time(), binding_id, window_id, window_name, connection_name))
         db.execute("DELETE FROM commands WHERE started < ?", (time.time() - 7 * 86400,))
         db.execute("DELETE FROM commands WHERE id NOT IN (SELECT id FROM commands ORDER BY started DESC LIMIT 2000)")
 

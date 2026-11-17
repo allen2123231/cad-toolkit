@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Windows.Threading;
 
 namespace CadToolkit;
@@ -10,18 +11,27 @@ public sealed class RuntimeHost : IDisposable
 {
     public string Root { get; }
     public string Version { get; }
+    public UpdateController Updates {get;}
     public JsonElement Snapshot { get; private set; }=JsonDocument.Parse("{\"rows\":[],\"history\":[]}").RootElement.Clone();
     public string Message { get; private set; }="正在檢查本機連線…";
     public bool IsChecking { get; private set; }
     public event Action? Changed;
+    public event Action? WindowsChanged;
+    public JsonElement WindowPanel { get; private set; }=JsonDocument.Parse("{\"windows\":[],\"requests\":[],\"confirmations\":[]}").RootElement.Clone();
     readonly string helpers,manifest;
+    readonly Dispatcher dispatcher=Dispatcher.CurrentDispatcher;
     readonly string? runtime;
+    readonly bool monitoring;
     readonly DispatcherTimer timer;
+    readonly DispatcherTimer windowsTimer;
+    bool checkingWindows;
+    bool windowsChecked,refreshAgain;
+    DateTime windowCheckAt;
     readonly CancellationTokenSource stop=new();
     readonly Dictionary<string,DateTime> activationAttempts=new();
-    readonly Dictionary<string,DateTime> launches=new();
     public RuntimeHost(string root,string[] args,bool start=true) {
-        Root=root;
+        Root=root;monitoring=start;
+        Updates=new UpdateController(root);Updates.Changed+=()=>{if(dispatcher.CheckAccess())Changed?.Invoke();else dispatcher.BeginInvoke(()=>Changed?.Invoke());};
         using var release=Assembly.GetExecutingAssembly().GetManifestResourceStream("CadToolkitSetup.release.json")!;
         Version=JsonDocument.Parse(release).RootElement.GetProperty("version").GetString()!;
         helpers=Path.Combine(root,"desktop",Version,"engine");Directory.CreateDirectory(helpers);
@@ -34,21 +44,48 @@ public sealed class RuntimeHost : IDisposable
         using(var input=assembly.GetManifestResourceStream("CadToolkitSetup.sources.json")!)using(var output=File.Create(manifest))input.CopyTo(output);
         runtime=args.FirstOrDefault(a=>a.StartsWith("--runtime="))?[10..];
         timer=new DispatcherTimer{Interval=TimeSpan.FromSeconds(10)};timer.Tick+=async(_,_)=>await Refresh();if(start)timer.Start();
+        windowsTimer=new DispatcherTimer{Interval=TimeSpan.FromSeconds(2)};windowsTimer.Tick+=async(_,_)=>await RefreshWindows();if(start)windowsTimer.Start();
     }
-    public IEnumerable<JsonElement> Rows=>Snapshot.TryGetProperty("rows",out var rows)?rows.EnumerateArray():Enumerable.Empty<JsonElement>();
+    public IEnumerable<JsonElement> Rows=>Snapshot.TryGetProperty("rows",out var rows)?rows.EnumerateArray().Select(LiveRow):Enumerable.Empty<JsonElement>();
     public IEnumerable<JsonElement> History=>Snapshot.TryGetProperty("history",out var rows)?rows.EnumerateArray():Enumerable.Empty<JsonElement>();
+    public bool HasFreshWindows=>windowsChecked&&(DateTime.UtcNow-windowCheckAt).TotalSeconds<8;
+    public IEnumerable<JsonElement> Windows=>HasFreshWindows&&WindowPanel.TryGetProperty("windows",out var rows)?rows.EnumerateArray():Enumerable.Empty<JsonElement>();
+    static string FrameKey(JsonElement w)=>string.Join("/",new[]{"pid","hwnd","processStart","instance_id"}.Select(k=>ExperienceState.Text(w,k)));
+    JsonElement LiveRow(JsonElement row){
+        if(!ExperienceState.Flag(row,"installed"))return row;
+        string kind=ExperienceState.Text(row,"id"),code=ExperienceState.Text(row,"code");string? liveCode=null;
+        if(!HasFreshWindows)liveCode="CHECKING";
+        else{
+            var frames=Windows.Where(w=>ExperienceState.Text(w,"kind")==kind).ToArray();
+            if(frames.Length==0){
+                var processes=Process.GetProcessesByName(kind=="rhino"?"Rhino":kind=="autocad"?"acad":"Inventor");bool background=processes.Length>0;foreach(var process in processes)process.Dispose();liveCode=background?"BACKGROUND_ONLY":"CAD_NOT_RUNNING";
+            }
+            else if(code=="READY"){
+                var verified=row.TryGetProperty("verified_windows",out var proof)&&proof.ValueKind==JsonValueKind.Array?proof.EnumerateArray().Select(FrameKey).ToHashSet():new HashSet<string>();
+                if(!frames.Any(w=>verified.Contains(FrameKey(w))))liveCode="CHECKING";
+            }
+            else if(code is "CAD_NOT_RUNNING" or "BACKGROUND_ONLY")liveCode="CHECKING";
+        }
+        if(liveCode==null)return row;
+        var value=JsonNode.Parse(row.GetRawText())!.AsObject();value["code"]=liveCode;value["document"]=null;return JsonSerializer.SerializeToElement(value);
+    }
+    public void ApplyWindowSnapshot(JsonElement next){
+        var before=Windows.Select(w=>ExperienceState.Text(w,"window_id")).Order().ToArray();bool wasFresh=HasFreshWindows;
+        bool changed=next.GetRawText()!=WindowPanel.GetRawText();WindowPanel=next.Clone();windowsChecked=true;windowCheckAt=DateTime.UtcNow;
+        var after=Windows.Select(w=>ExperienceState.Text(w,"window_id")).Order().ToArray();
+        if(changed||!wasFresh){WindowsChanged?.Invoke();Changed?.Invoke();}
+        if(monitoring&&!before.SequenceEqual(after)){if(IsChecking)refreshAgain=true;else _=Refresh();}
+    }
+    public async Task RefreshWindows() {
+        if(checkingWindows||stop.IsCancellationRequested)return;checkingWindows=true;
+        try{ApplyWindowSnapshot(await Run("windows"));}
+        catch(Exception ex){windowsChecked=false;Message="視窗檢查："+ex.Message;Changed?.Invoke();}
+        finally{checkingWindows=false;}
+    }
+    public async Task WindowAction(string action,params string[] arguments){await Run(action,arguments);await RefreshWindows();}
     public bool Connected=>Rows.Any(r=>ExperienceState.Text(r,"code")=="READY");
-    public string OpenCad(string kind) {
-        if(launches.TryGetValue(kind,out var last)&&(DateTime.Now-last).TotalSeconds<15)return "剛才已發出啟動要求，請等待軟體回應。";
-        var processes=Process.GetProcessesByName(kind=="autocad"?"acad":kind=="inventor"?"Inventor":"Rhino");
-        bool running=processes.Length>0;foreach(var process in processes)process.Dispose();
-        if(running)return ExperienceState.Names[kind]+" 已開啟。若剛安裝外掛，請自行儲存並重開。";
-        string? file=ExperienceState.Load(Root).Paths.GetValueOrDefault(kind)??ExperienceState.Detect(kind);
-        if(file==null)throw new InvalidOperationException("請先安裝 "+ExperienceState.Names[kind]+"。");
-        var previous=ExperienceState.Read(Root,"launches.json");var data=new Dictionary<string,string>();if(previous.ValueKind==JsonValueKind.Object)foreach(var p in previous.EnumerateObject())data[p.Name]=p.Value.ToString();data[kind]=DateTimeOffset.Now.ToString("o");
-        Directory.CreateDirectory(Root);File.WriteAllText(Path.Combine(Root,"launches.json"),JsonSerializer.Serialize(data));launches[kind]=DateTime.Now;
-        using var started=Process.Start(new ProcessStartInfo(file){UseShellExecute=true});
-        return "正在開啟 "+ExperienceState.Names[kind]+"，完成授權或登入後會自動檢查連線。";
+    public async Task<string> OpenCad(string kind) {
+        var value=await Run("open-cad","--kind",kind);await RefreshWindows();return ExperienceState.Text(value,"message");
     }
     string? Python() {
         if(runtime!=null&&File.Exists(runtime))return runtime;
@@ -69,7 +106,7 @@ public sealed class RuntimeHost : IDisposable
         using var timeout=CancellationTokenSource.CreateLinkedTokenSource(stop.Token);timeout.CancelAfter(TimeSpan.FromSeconds(32));
         try{await process.WaitForExitAsync(timeout.Token);}catch(OperationCanceledException){try{process.Kill(true);}catch(InvalidOperationException){}throw new TimeoutException("連線檢查逾時，稍後會自動重試。");}
         string text=await output;string error=await errors;
-        if(process.ExitCode!=0)throw new InvalidOperationException(error.Length>0?error[^Math.Min(500,error.Length)..]:"連線檢查未完成。");
+        if(process.ExitCode!=0){string message="無法完成這次要求，請重新檢查或到「安裝與版本」修復元件。";try{using var failure=JsonDocument.Parse(text);if(failure.RootElement.TryGetProperty("error",out var value)&&value.ValueKind==JsonValueKind.String)message=value.GetString()!;}catch(JsonException){}throw new InvalidOperationException(message);}
         return JsonDocument.Parse(text).RootElement.Clone();
     }
     public async Task Refresh() {
@@ -84,7 +121,7 @@ public sealed class RuntimeHost : IDisposable
             }
         }
         catch(Exception ex){Message=ex is InvalidOperationException?ex.Message:"暫時無法檢查，稍後自動重試。";Snapshot=JsonDocument.Parse("{\"rows\":[],\"history\":[]}").RootElement.Clone();}
-        finally{IsChecking=false;Changed?.Invoke();}
+        finally{IsChecking=false;Changed?.Invoke();if(refreshAgain&&!stop.IsCancellationRequested){refreshAgain=false;_=Refresh();}}
     }
-    public void Dispose(){timer.Stop();stop.Cancel();stop.Dispose();}
+    public void Dispose(){timer.Stop();windowsTimer.Stop();Updates.Dispose();stop.Cancel();stop.Dispose();}
 }

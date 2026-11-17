@@ -1,5 +1,5 @@
 {
-  "version": "0.3.0-preview.1",
+  "version": "0.5.0-beta.1",
   "python": "3.12.11",
   "uv": "0.8.17",
   "components": {
@@ -26,14 +26,12 @@
       "commit": "6ad258efaa49086c1a7747506564802e84f8d0d7",
       "subdir": "server",
       "package": "rhinomcp",
-      "package_version": "0.5.2",
+      "package_version": "0.5.3",
       "entrypoint": "rhinomcp.exe",
       "process": "Rhino.exe",
-      "plugin_asset": {
-        "version": "0.5.2",
-        "url": "https://github.com/allen2123231/rhinomcp/releases/download/v0.5.2/rhinomcp-0.5.2-rh8_17-any.yak",
-        "sha256": "e2200c0e753d73814cac6d13979ded5ca8304d155cb01804169b69ed480a33bb"
-      }
+      "patch": "patches/rhino-window-binding.patch",
+      "patch_sha256": "be5b48f48c2cbc60ea2632bd81256bcaca353bd8acc8d6133c0d34ae972acb78",
+      "build_plugin": true
     }
   }
 }
