@@ -33,6 +33,11 @@ jobs:
           python scripts/build_payload.py
           dotnet publish installer/CadToolkitSetup.csproj -c Release -o dist/setup
           python scripts/finalize_release.py
+      - name: 盤點主程式與巢狀套件的程式簽章
+        shell: pwsh
+        run: |
+          python scripts/signing_inventory.py --payload dist/cad-toolkit-payload.zip --installer dist/McpToolkitSetup.exe --output .build/signing-inventory.json
+          ./scripts/audit_signatures.ps1 -Inventory .build/signing-inventory.json -Output dist/signature-audit.json
       - name: 檢查新管理介面與安裝畫面
         run: dotnet run --project tests/desktop/DesktopChecks.csproj -c Release -- test-results/desktop
       - name: 檢查自動更新與完整解除安裝
@@ -52,6 +57,7 @@ jobs:
             dist/cad-toolkit-payload.zip
             dist/release-manifest.json
             dist/SHA256SUMS.txt
+            dist/signature-audit.json
       - name: 發布 Release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
@@ -70,5 +76,9 @@ jobs:
           if ($LASTEXITCODE -eq 0 -and $published -eq 'false') {
             Write-Output '此版本已發布，保留已驗證的下載檔案。'
             exit 0
+          }
+          $signatureAudit = Get-Content -LiteralPath dist/signature-audit.json -Raw | ConvertFrom-Json
+          if (-not $signatureAudit.all_signatures_valid) {
+            throw '尚未完成可信任的程式簽章，停止公開發布。測試檔可從 Actions artifact 取得，但不可宣稱已相容 Smart App Control。'
           }
           gh @releaseArgs dist/McpToolkitSetup.exe dist/McpToolkit.exe dist/cad-toolkit-payload.zip dist/release-manifest.json dist/SHA256SUMS.txt

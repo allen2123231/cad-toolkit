@@ -2,6 +2,8 @@
 
 這是 Beta 測試版，供驗證自動更新、通知與完整解除安裝。EXE 尚未簽章；乾淨 Windows、不同 CAD 版本及真人新手驗收尚未完成。
 
+**Smart App Control 相容性：這份 Beta 尚未簽章，啟用 SAC 的電腦可能阻擋安裝或載入元件。正式簽章與 SAC 實機驗證尚未完成。** 詳見 [簽章狀態](windows-signing.md)。
+
 ## 自動檢查與通知
 
 - Toolkit 啟動時及每天背景檢查 GitHub Release；離線或查詢失敗不影響現有 CAD 連線。
