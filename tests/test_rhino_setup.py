@@ -1,6 +1,8 @@
 import contextlib
 import io
 import json
+import os
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,10 +14,11 @@ from rhino_setup import find_yak, install_plugin
 
 class RhinoSetupTests(Fixture):
     def prepare(self):
+        env=patch.dict(os.environ,{'APPDATA':str(self.base/'roaming'),'LOCALAPPDATA':str(self.base/'local')});env.start();self.addCleanup(env.stop)
         target = self.base / 'Toolkit/versions/test-rhino'
         package = target / 'payload/cad/rhino/rhinomcp-0.5.2-rh8_17-any.yak'
         package.parent.mkdir(parents=True)
-        package.write_bytes(b'verified release package')
+        with zipfile.ZipFile(package,'w') as archive:archive.writestr('net8.0/RhinoMCP.rhp',b'verified release plugin')
         relative = 'cad/rhino/' + package.name
         atomic_json(target / 'payload/bundle.json', {
             'components': {'rhino': {'plugin_file': package.name, 'plugin_asset': {'version': '0.5.2'}}},
@@ -28,9 +31,14 @@ class RhinoSetupTests(Fixture):
         rhino.with_name('Yak.exe').touch()
         return target, package, rhino
 
+    def installed(self,package):
+        destination=Path(os.environ['APPDATA'])/'McNeel/Rhinoceros/packages/8.0/rhinomcp/0.5.2'
+        with zipfile.ZipFile(package) as archive:archive.extractall(destination)
+        return 'Successfully installed rhinomcp (0.5.2)'
+
     def test_uses_selected_rhino_and_keeps_paths_with_spaces_as_arguments(self):
         target, package, rhino = self.prepare()
-        with patch('rhino_setup.run', return_value='Successfully installed rhinomcp (0.5.2)') as run:
+        with patch('rhino_setup.run', side_effect=lambda *args,**kwargs:self.installed(package)) as run:
             result = install_plugin(target, str(rhino))
         run.assert_called_once_with([rhino.with_name('Yak.exe'), 'install', package.resolve()], timeout=120)
         self.assertEqual(result['version'], '0.5.2')
@@ -43,7 +51,7 @@ class RhinoSetupTests(Fixture):
         run.assert_not_called()
 
     def test_package_name_cannot_escape_the_bundle(self):
-        target, _, rhino = self.prepare()
+        target, package, rhino = self.prepare()
         manifest = target / 'payload/bundle.json'
         data = json.loads(manifest.read_text())
         data['components']['rhino']['plugin_file'] = '../../outside.yak'
@@ -57,11 +65,11 @@ class RhinoSetupTests(Fixture):
             find_yak(str(self.base / 'missing/Rhino.exe'))
 
     def test_configure_preserves_active_mapping_and_reports_restart(self):
-        target, _, rhino = self.prepare()
+        target, package, rhino = self.prepare()
         manager = Manager(self.base / 'Toolkit')
         manager.rhino_exe = str(rhino)
         manager.state.update(candidate={'path': str(target), 'selected': ['rhino']}, active={'inventor': 'existing'})
-        with patch('rhino_setup.run', return_value='installed'), patch('manager.processes', return_value=[{'pid': 1}]), contextlib.redirect_stdout(io.StringIO()):
+        with patch('rhino_setup.run', side_effect=lambda *args,**kwargs:self.installed(package)), patch('manager.processes', return_value=[{'pid': 1}]), contextlib.redirect_stdout(io.StringIO()):
             manager.configure_rhino()
         result = json.loads((target / 'rhino-plugin.json').read_text(encoding='utf-8'))
         self.assertTrue(result['restart_required'])

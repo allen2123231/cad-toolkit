@@ -10,11 +10,12 @@ from common import read_json, sha256, within
 def remove_rhino(targets, backup, appdata=None):
     base = Path(appdata or os.environ['APPDATA']) / 'McNeel/Rhinoceros/packages/8.0/rhinomcp'
     result = {'removed': [], 'preserved': []}
-    seen = set()
+    seen = set();unmatched=[]
     for target in targets:
         payload = Path(target) / 'payload'
         receipt = Path(target) / 'rhino-plugin.json'
         if not receipt.is_file(): continue
+        installed=None
         try:
             manifest = read_json(payload / 'bundle.json')
             spec = manifest['components']['rhino']
@@ -25,7 +26,6 @@ def remove_rhino(targets, backup, appdata=None):
             if base.is_symlink() or base.is_junction() or raw.is_symlink() or raw.is_junction(): raise ValueError('Reparse point preserved')
             installed = within(base, version)
             if installed in seen or not installed.exists(): continue
-            seen.add(installed)
             package = within(payload, 'cad/rhino/' + spec['plugin_file'])
             if sha256(package) != manifest['files']['cad/rhino/' + spec['plugin_file']]: raise ValueError('Package checksum mismatch')
             with zipfile.ZipFile(package) as archive:
@@ -39,7 +39,9 @@ def remove_rhino(targets, backup, appdata=None):
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(installed), str(destination))
             result['removed'].append(str(installed))
+            seen.add(installed)
         except (OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
-            result['preserved'].append(str(exc))
+            unmatched.append((installed,str(exc)))
+    result['preserved']=[message for path,message in unmatched if path is None or str(path) not in result['removed']]
     if base.exists() and not any(base.iterdir()): base.rmdir()
     return result

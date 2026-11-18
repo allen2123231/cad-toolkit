@@ -46,7 +46,7 @@ public sealed class ExperienceState
         File.WriteAllText(file + ".tmp", JsonSerializer.Serialize(this)); File.Move(file + ".tmp", file, true);
     }
     public static JsonElement Read(string root, string name = "state.json") {
-        try { return JsonDocument.Parse(File.ReadAllText(Path.Combine(root, name))).RootElement.Clone(); }
+        try { using var stream=new FileStream(Path.Combine(root,name),FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);return JsonDocument.Parse(stream).RootElement.Clone(); }
         catch { return JsonDocument.Parse("{}").RootElement.Clone(); }
     }
     public static Dictionary<string, string> Names = new() { ["autocad"]="AutoCAD", ["inventor"]="Inventor", ["rhino"]="Rhino" };

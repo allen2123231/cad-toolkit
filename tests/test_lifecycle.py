@@ -27,6 +27,16 @@ class Fixture(unittest.TestCase):
         self.env.stop(); self.temp.cleanup()
 
 class FileTests(Fixture):
+    def test_atomic_replacement_retries_temporary_windows_reader_locks(self):
+        file=self.base/'state.json';atomic_json(file,{'previous':True})
+        replace=os.replace;calls=[]
+        def locked_then_replace(source,target):
+            calls.append(1)
+            if len(calls)<3:
+                self.assertEqual(read_json(file),{'previous':True});raise PermissionError('temporary reader lock')
+            return replace(source,target)
+        with patch('common.os.replace',side_effect=locked_then_replace):atomic_json(file,{'new':True})
+        self.assertEqual(read_json(file),{'new':True});self.assertFalse(list(self.base.glob('state.json.*.tmp')))
     def test_atomic_replacement(self):
         file = self.base / "state.json"
         atomic_json(file, {"中文": 1}); atomic_json(file, {"中文": 2})

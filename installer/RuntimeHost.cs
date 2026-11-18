@@ -15,12 +15,20 @@ public sealed class RuntimeHost : IDisposable
     public JsonElement Snapshot { get; private set; }=JsonDocument.Parse("{\"rows\":[],\"history\":[]}").RootElement.Clone();
     public string Message { get; private set; }="正在檢查本機連線…";
     public bool IsChecking { get; private set; }
+    public bool IsManualCheck {get;private set;}
+    public string? CheckingKind {get;private set;}
+    public string? CheckError {get;private set;}
+    readonly Dictionary<string,DateTime> checkedAt=new();
+    TaskCompletionSource<bool>? checkFinished,windowsFinished;
+    Task? queuedRecheck;
+    public DateTime? LastCheckedAt(string kind)=>checkedAt.TryGetValue(kind,out var at)?at:null;
     public event Action? Changed;
     public event Action? WindowsChanged;
     public JsonElement WindowPanel { get; private set; }=JsonDocument.Parse("{\"windows\":[],\"requests\":[],\"confirmations\":[]}").RootElement.Clone();
     readonly string helpers,manifest;
     readonly Dispatcher dispatcher=Dispatcher.CurrentDispatcher;
     readonly string? runtime;
+    readonly Func<string,string[],Task<JsonElement>>? commandRunner;
     readonly bool monitoring;
     readonly DispatcherTimer timer;
     readonly DispatcherTimer windowsTimer;
@@ -29,7 +37,8 @@ public sealed class RuntimeHost : IDisposable
     DateTime windowCheckAt;
     readonly CancellationTokenSource stop=new();
     readonly Dictionary<string,DateTime> activationAttempts=new();
-    public RuntimeHost(string root,string[] args,bool start=true) {
+    public RuntimeHost(string root,string[] args,bool start=true,Func<string,string[],Task<JsonElement>>? commandRunner=null) {
+        this.commandRunner=commandRunner;
         Root=root;monitoring=start;
         Updates=new UpdateController(root);Updates.Changed+=()=>{if(dispatcher.CheckAccess())Changed?.Invoke();else dispatcher.BeginInvoke(()=>Changed?.Invoke());};
         using var release=Assembly.GetExecutingAssembly().GetManifestResourceStream("CadToolkitSetup.release.json")!;
@@ -54,7 +63,9 @@ public sealed class RuntimeHost : IDisposable
     JsonElement LiveRow(JsonElement row){
         if(!ExperienceState.Flag(row,"installed"))return row;
         string kind=ExperienceState.Text(row,"id"),code=ExperienceState.Text(row,"code");string? liveCode=null;
-        if(!HasFreshWindows)liveCode="CHECKING";
+        if(IsManualCheck&&(CheckingKind==null||CheckingKind==kind))liveCode="CHECKING";
+        else if(CheckError!=null)liveCode="CHECK_FAILED";
+        else if(!HasFreshWindows)liveCode="CHECKING";
         else{
             var frames=Windows.Where(w=>ExperienceState.Text(w,"kind")==kind).ToArray();
             if(frames.Length==0){
@@ -77,10 +88,12 @@ public sealed class RuntimeHost : IDisposable
         if(monitoring&&!before.SequenceEqual(after)){if(IsChecking)refreshAgain=true;else _=Refresh();}
     }
     public async Task RefreshWindows() {
-        if(checkingWindows||stop.IsCancellationRequested)return;checkingWindows=true;
+        if(stop.IsCancellationRequested)return;
+        if(checkingWindows){if(windowsFinished!=null)await windowsFinished.Task;return;}
+        checkingWindows=true;var finished=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);windowsFinished=finished;
         try{ApplyWindowSnapshot(await Run("windows"));}
         catch(Exception ex){windowsChecked=false;Message="視窗檢查："+ex.Message;Changed?.Invoke();}
-        finally{checkingWindows=false;}
+        finally{checkingWindows=false;finished.TrySetResult(true);}
     }
     public async Task WindowAction(string action,params string[] arguments){await Run(action,arguments);await RefreshWindows();}
     public bool Connected=>Rows.Any(r=>ExperienceState.Text(r,"code")=="READY");
@@ -100,6 +113,7 @@ public sealed class RuntimeHost : IDisposable
         return null;
     }
     public async Task<JsonElement> Run(string action,params string[] arguments) {
+        if(commandRunner!=null)return await commandRunner(action,arguments);
         string python=Python()??throw new InvalidOperationException("請先完成 MCP 元件安裝，程式會自動準備所需環境。");
         var start=new ProcessStartInfo(python){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true,StandardOutputEncoding=System.Text.Encoding.UTF8,StandardErrorEncoding=System.Text.Encoding.UTF8};
         foreach(var arg in new[]{"-X","utf8",Path.Combine(helpers,"runtime.py"),action,"--root",Root,"--manifest",manifest}.Concat(arguments))start.ArgumentList.Add(arg);
@@ -110,19 +124,36 @@ public sealed class RuntimeHost : IDisposable
         if(process.ExitCode!=0){string message="無法完成這次要求，請重新檢查或到「安裝與版本」修復元件。";try{using var failure=JsonDocument.Parse(text);if(failure.RootElement.TryGetProperty("error",out var value)&&value.ValueKind==JsonValueKind.String)message=value.GetString()!;}catch(JsonException){}throw new InvalidOperationException(message);}
         return JsonDocument.Parse(text).RootElement.Clone();
     }
-    public async Task Refresh() {
-        if(IsChecking||stop.IsCancellationRequested)return;IsChecking=true;
+    public Task Recheck(string? kind=null){
+        if(kind==null)activationAttempts.Clear();else activationAttempts.Remove(kind);
+        if(!IsChecking)return Refresh(true,kind);
+        Message="已排入重新檢查，正在等待目前檢查完成…";Changed?.Invoke();
+        if(queuedRecheck==null||queuedRecheck.IsCompleted)queuedRecheck=RecheckAfter(checkFinished?.Task??Task.CompletedTask,kind);
+        return queuedRecheck;
+    }
+    async Task RecheckAfter(Task previous,string? kind){await previous;if(!stop.IsCancellationRequested)await Refresh(true,kind);}
+    public async Task Refresh(bool manual=false,string? targetKind=null) {
+        if(IsChecking||stop.IsCancellationRequested)return;
+        IsChecking=true;IsManualCheck=manual;CheckingKind=targetKind;
+        var finished=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);checkFinished=finished;
+        Message=manual?"正在重新檢查 "+(targetKind==null?"所有 MCP":ExperienceState.Names.GetValueOrDefault(targetKind,targetKind))+"…":"正在檢查 MCP 連線…";Changed?.Invoke();
         try {
-            Snapshot=await Run("snapshot");Message="背景監控中 · "+DateTime.Now.ToString("HH:mm:ss");
-            foreach(var row in Rows.Where(r=>ExperienceState.Flag(r,"pending")&&ExperienceState.Text(r,"code")=="NOT_ENABLED").ToArray()){
+            if(manual){await RefreshWindows();refreshAgain=false;}
+            var next=await Run("snapshot");if(!next.TryGetProperty("rows",out var nextRows)||nextRows.ValueKind!=JsonValueKind.Array)throw new InvalidOperationException("診斷結果不完整，請重試檢查。");
+            Snapshot=next;CheckError=null;Message="背景監控中 · "+DateTime.Now.ToString("HH:mm:ss");
+            bool activated=false;
+            foreach(var row in Snapshot.GetProperty("rows").EnumerateArray().Where(r=>ExperienceState.Flag(r,"pending")&&ExperienceState.Text(r,"code")=="NOT_ENABLED"&&(!manual||targetKind==null||ExperienceState.Text(r,"id")==targetKind)).ToArray()){
                 string kind=ExperienceState.Text(row,"id");if(activationAttempts.TryGetValue(kind,out var last)&&(DateTime.Now-last).TotalMinutes<1)continue;
                 activationAttempts[kind]=DateTime.Now;Message="正在完成 "+ExperienceState.Names[kind]+" 自動連線…";Changed?.Invoke();
-                try{var service=new ToolkitService(Root){Token=stop.Token};await service.Engine("activate",[kind]);Message=ExperienceState.Names[kind]+" 已啟用，請在 Codex 開啟新對話。";}
+                try{var service=new ToolkitService(Root){Token=stop.Token};await service.Engine("activate",[kind]);activated=true;Message=ExperienceState.Names[kind]+" 已啟用，請在 Codex 開啟新對話。";}
                 catch(Exception){Message=ExperienceState.Names[kind]+" 等待完成連線，可從安裝與版本頁修復。";}
             }
+            if(activated)Snapshot=await Run("snapshot");
+            foreach(var row in Rows)checkedAt[ExperienceState.Text(row,"id")]=DateTime.Now;
+            if(manual&&!activated)Message="已完成重新檢查 · "+DateTime.Now.ToString("HH:mm:ss");
         }
-        catch(Exception ex){Message=ex is InvalidOperationException?ex.Message:"暫時無法檢查，稍後自動重試。";Snapshot=JsonDocument.Parse("{\"rows\":[],\"history\":[]}").RootElement.Clone();}
-        finally{IsChecking=false;Changed?.Invoke();if(refreshAgain&&!stop.IsCancellationRequested){refreshAgain=false;_=Refresh();}}
+        catch(Exception ex){CheckError=ex.Message;Message="檢查未完成："+ex.Message;}
+        finally{IsChecking=false;IsManualCheck=false;CheckingKind=null;Changed?.Invoke();finished.TrySetResult(true);if(refreshAgain&&!stop.IsCancellationRequested){refreshAgain=false;if(queuedRecheck==null||queuedRecheck.IsCompleted)_=Refresh();}}
     }
     public void Dispose(){timer.Stop();windowsTimer.Stop();Updates.Dispose();stop.Cancel();stop.Dispose();}
 }

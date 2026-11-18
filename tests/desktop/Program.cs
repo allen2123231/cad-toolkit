@@ -58,7 +58,27 @@ class DesktopChecks
             ((InvokePattern)button.GetCurrentPattern(InvokePattern.Pattern)).Invoke();Console.WriteLine("Invoked exact window selection in isolated Toolkit process");return;
         }
         string output=Path.GetFullPath(args.Length>0?args[0]:"test-results/desktop");Directory.CreateDirectory(output);var app=new Application{ShutdownMode=ShutdownMode.OnExplicitShutdown};
-        app.Startup+=(_,_)=>{try{
+        app.Startup+=async(_,_)=>{try{
+            if(args.Contains("--repro-refresh-cards")){
+                var delayed=new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);var second=new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);var secondStarted=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);int requests=0;
+                Task<JsonElement> Probe(string action,string[] arguments){if(action!="snapshot")return Task.FromResult(JsonDocument.Parse("""{"windows":[],"requests":[],"confirmations":[]}""").RootElement.Clone());requests++;if(requests==1)return delayed.Task;if(requests==2){secondStarted.SetResult(true);return second.Task;}return Task.FromException<JsonElement>(new InvalidOperationException("fixture diagnostic failure"));}
+                using var checking=new RuntimeHost(Path.Combine(output,"checking-root"),[],false,Probe);
+                int changes=0;checking.Changed+=()=>changes++;
+                var view=new ManagerWindow(checking,(_,_)=>{});view.ShowActivated=false;view.Show();view.Navigate("install");view.UpdateLayout();
+                var faults=new List<string>();if(Find<TextBlock>(view).Any(t=>t.Text=="Toolkit 更新")&&Find<TextBlock>(view).Any(t=>t.Text=="MCP Toolkit"))faults.Add("Toolkit version and update cards are duplicated");
+                var refresh=checking.Refresh();if(changes==0||!checking.Message.Contains("檢查"))faults.Add("Refresh has no immediate visible progress event");
+                var queued=checking.Recheck("rhino");if(queued.IsCompleted||!checking.Message.Contains("排入"))faults.Add("Busy refresh drops the user's manual request");
+                var result=JsonDocument.Parse("""{"rows":[{"id":"rhino","installed":true,"managed":true,"pending":false,"code":"CAD_NOT_RUNNING","document":null}],"history":[]}""").RootElement.Clone();
+                delayed.SetResult(result);await refresh;await secondStarted.Task;view.Navigate("overview");view.UpdateLayout();
+                if(!checking.IsManualCheck||!Find<Button>(view).Any(b=>System.Windows.Automation.AutomationProperties.GetAutomationId(b)=="recheck-rhino"&&!b.IsEnabled&&b.Content?.ToString()=="檢查中…"))faults.Add("Manual MCP check does not show a disabled progress button");
+                second.SetResult(result);await queued;
+                if(checking.LastCheckedAt("rhino")==null||!checking.Message.Contains("完成"))faults.Add("Refresh completion has no timestamp or result");
+                await checking.Recheck("rhino");
+                if(!checking.Rows.Any(r=>ExperienceState.Flag(r,"installed")&&ExperienceState.Text(r,"code")=="CHECK_FAILED")||!checking.Message.Contains("fixture diagnostic failure"))faults.Add("A failed check hides installed MCPs or loses the error");
+                view.Close();
+                if(faults.Count>0)throw new Exception(string.Join("; ",faults));
+                Console.WriteLine("Merged card and refresh feedback checks passed");app.Shutdown(0);return;
+            }
             using var host=new RuntimeHost(Path.Combine(output,"isolated-root"),[],false);
             if(args.Contains("--repro-desktop-issues")){
                 var faults=new List<string>();

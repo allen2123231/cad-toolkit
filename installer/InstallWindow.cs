@@ -26,7 +26,7 @@ public sealed class InstallWindow : Window
     readonly bool updating;
     public InstallWindow(RuntimeHost host,string? kind=null,bool updating=false) {
         this.updating=updating;
-        this.host=host;service=new ToolkitService(host.Root);destination.Text=!updating&&kind==null&&string.Equals(Path.GetFileName(host.Root),"CadToolkit",StringComparison.OrdinalIgnoreCase)?InstallLocation.DefaultPath:host.Root;
+        this.host=host;service=new ToolkitService(host.Root);destination.Text=host.Root;
         foreach(string id in kind==null?new[]{"rhino","autocad","inventor"}:[kind])selected.Add(id);
         Title="安裝 MCP Toolkit";Width=730;Height=750;MinWidth=560;MinHeight=530;WindowStartupLocation=WindowStartupLocation.CenterScreen;Background=Brushes.White;Foreground=Ink;FontFamily=new FontFamily("Microsoft JhengHei UI");Resources.Add(typeof(Button),ButtonStyle());
         Icon=AppIcon();
@@ -62,6 +62,7 @@ public sealed class InstallWindow : Window
         body.Children.Add(Text("可直接修改路徑，或按「瀏覽」選擇位置。",11,color:Muted));body.Children.Add(Text("需要自己的軟體授權。正在使用的文件會保留；外掛安裝後可能需要自行儲存並重開軟體。",11,color:Muted));
         if(File.Exists(Path.Combine(host.Root,"state.json"))&&!string.Equals(destination.Text,host.Root,StringComparison.OrdinalIgnoreCase))body.Children.Add(Text("目前安裝在 "+host.Root+"；安裝到其他位置不會刪除原資料。",11,color:Muted));
         body.Children.Add(Text("安裝時會重新啟動 Toolkit；CAD 軟體與文件會保留。",11,color:Muted));
+        if(File.Exists(Path.Combine(host.Root,"state.json"))&&destination.Text==host.Root)body.Children.Add(Text("偵測到現有安裝，將沿用原位置並保留設定。",11,color:Blue));
         bool codex=ExperienceState.Codex()!=null;
         if(!codex){body.Children.Add(Text("請先安裝並登入 Codex，才能完成 AI 工具設定。",12,color:Color("#B17A24")));body.Children.Add(Button("前往 Codex 官方入門",()=>Process.Start(new ProcessStartInfo("https://learn.chatgpt.com/docs/windows/windows-app"){UseShellExecute=true})));}
         footer.Children.Add(status);var actions=new WrapPanel{HorizontalAlignment=HorizontalAlignment.Right};actions.Children.Add(Button("取消",Close));actions.Children.Add(Button("安裝所選 MCP",async()=>await Install(),true));footer.Children.Add(actions);

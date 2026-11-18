@@ -290,7 +290,7 @@ class Manager:
             except Exception as exc:
                 pending.discard(component)
                 emit(f'{component} 元件已安裝，連線設定需要處理。', step='setup', component=component,
-                     outcome='needs_action', next_action=str(exc))
+                     outcome='needs_action', next_action=getattr(exc,'user_message',str(exc)),details=str(exc))
         self.configure_plugin()
         self.state['auto_enable_pending'] = sorted(pending)
         self.save()
@@ -307,7 +307,13 @@ class Manager:
         self.checkpoint()
         emit('正在安裝 Rhino 自動連線外掛，完成前請勿關閉。', step='configure_rhino', component='rhino', cancellable=False)
         result = install_plugin(target, getattr(self, 'rhino_exe', None))
-        result.update(restart_required=bool(processes('Rhino.exe')) and not result.get('already_installed', False), installed_at=utc())
+        opened=processes('Rhino.exe')
+        restart=bool(opened) and not result.get('already_installed',False)
+        if opened and result.get('already_installed'):
+            from rhino_instances import collect
+            loaded=collect([int(p['pid']) for p in opened])
+            restart=len(loaded)!=len(opened) or any(v.get('guard_protocol')!=1 or v.get('version','').split('+')[0]!=result['version'] for v in loaded)
+        result.update(restart_required=restart,installed_at=utc())
         atomic_json(Path(target) / 'rhino-plugin.json', result)
         message = ('外掛已安裝。請自行儲存工作並重新開啟 Rhino，新版會自動連線。'
                    if result['restart_required'] else '外掛已安裝。現在開啟 Rhino，文件準備好後會自動連線。')

@@ -37,6 +37,7 @@ def outcome(component, status, enabled=False):
             'ready': code == 'READY', 'checked_at': dt.datetime.now(dt.timezone.utc).isoformat()}
 
 def friendly_error(error):
+    if getattr(error,'user_message',None):return getattr(error,'error_code','ACTION_REQUIRED'),error.user_message
     message = str(error)
     if isinstance(error, Cancelled): return 'CANCELLED', '已在安全步驟停止。下次安裝會接續已完成的元件。'
     if getattr(error, 'errno', None) == 28 or 'space' in message.lower(): return 'DISK_FULL', '磁碟空間不足。請釋放至少 3 GB 空間，再重試安裝。'

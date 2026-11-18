@@ -51,6 +51,18 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(self.manager.state,state)
 
 class NativeCleanupTests(unittest.TestCase):
+    def test_old_receipt_does_not_hide_a_matching_new_same_version_package(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base=Path(temp);targets=[]
+            for name,content in [('old',b'old build'),('new',b'new build')]:
+                target=base/name;folder=target/'payload/cad/rhino';folder.mkdir(parents=True);package=folder/'fixture.yak'
+                with zipfile.ZipFile(package,'w') as z:z.writestr('RhinoMCP.rhp',content)
+                atomic_json(target/'payload/bundle.json',{'components':{'rhino':{'plugin_asset':{'version':'0.5.3'},'plugin_file':package.name}},'files':{'cad/rhino/'+package.name:hashlib.sha256(package.read_bytes()).hexdigest()}})
+                atomic_json(target/'rhino-plugin.json',{'version':'0.5.3'});targets.append(target)
+            installed=base/'roaming/McNeel/Rhinoceros/packages/8.0/rhinomcp/0.5.3';installed.mkdir(parents=True);(installed/'RhinoMCP.rhp').write_bytes(b'new build')
+            result=remove_rhino(targets,base/'backup',base/'roaming')
+            self.assertEqual(len(result['removed']),1);self.assertEqual(result['preserved'],[])
+
     def test_only_verified_owned_plugin_is_removed(self):
         with tempfile.TemporaryDirectory() as temp:
             base=Path(temp);target=base/'target';payload=target/'payload';folder=payload/'cad/rhino';folder.mkdir(parents=True)
