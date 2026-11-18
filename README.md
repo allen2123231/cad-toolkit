@@ -4,11 +4,11 @@ Windows 右下角的 MCP 管理程式，整合 **Rhino、AutoCAD、Inventor**。
 
 點系統匣圖示查看小型狀態面板，需要時再開完整管理視窗。顯示目前文件、連線方式／端口、MCP 版本、安裝狀態與最近指令。
 
-目前開發修正版為 **0.5.0-beta.4（本機／CI 測試版）**，改善更新期間的介面回應、階段進度與取消下載。公開下載為 **0.5.0-beta.3（未簽章 Beta）**；Beta 3 經維護者單次例外同意發布，後續版本預設仍受程式簽章發布門檻限制。
+目前公開版本為 **0.5.0-beta.4（未簽章 Beta 測試版）**，改善更新期間的介面回應、階段進度與取消下載。Beta 3、Beta 4 均經維護者逐版例外同意發布，後續版本預設仍受程式簽章發布門檻限制。
 
 **Windows 相容性：本 Beta 尚未簽章，開啟 Smart App Control 的電腦可能無法安裝或載入部分元件。正式簽章與 SAC 實機驗收尚未完成。** [簽章盤點與後續處理](docs/windows-signing.md)
 
-**[下載已發布 Windows 預覽版](https://github.com/allen2123231/cad-toolkit/releases/tag/v0.5.0-beta.3)** · **[第一次使用](docs/getting-started.md)** · **[驗證範圍](docs/validation.md)**
+**[下載已發布 Windows 預覽版](https://github.com/allen2123231/cad-toolkit/releases/tag/v0.5.0-beta.4)** · **[第一次使用](docs/getting-started.md)** · **[驗證範圍](docs/validation.md)**
 
 <img src="docs/images/mcp-install.png" width="620" alt="MCP Toolkit 新安裝介面，實際 WPF 渲染，示範資料">
 
