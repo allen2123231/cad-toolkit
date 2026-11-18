@@ -99,6 +99,8 @@ class ExperienceTests(Fixture):
             for selected in itertools.combinations(['autocad','inventor','rhino'],n):
                 with self.subTest(selected=selected):
                     root=self.base/('-'.join(selected));payload=root/'source';payload.mkdir(parents=True)
+                    if 'autocad' in selected:
+                        lisp=payload/'cad/autocad/mcp_dispatch.lsp';lisp.parent.mkdir(parents=True);lisp.write_text('(setq *mcp-ipc-dir* "C:/temp/")',encoding='utf-8')
                     manifest={'version':'0.2.0-preview.1','files':{},'components':{c:{'wheel':c+'.whl'} for c in selected}}
                     atomic_json(payload/'bundle.json',manifest)
                     key=manifest['version']+'-'+'-'.join(sorted(selected))+'-'+sha256(payload/'bundle.json')[:12]

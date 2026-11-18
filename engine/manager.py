@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent / "vendor"))
 from common import COMPONENTS, SKILLS, atomic_json, extract_zip, install_lock, read_json, run, sha256, within
 from probe import Client
 from experience import Cancelled, friendly_error, outcome
+from component_state import prepared_targets,component_ready
 
 def emit(message, **values):
     # ASCII JSON transport works even on Windows consoles configured for CP1252.
@@ -159,6 +160,23 @@ class Manager:
 
     def save(self): atomic_json(self.state_path, self.state)
 
+    def prepared(self):return prepared_targets(self.root,self.state)
+
+    def enabled_components(self,components):
+        policy=self.config.load().get('plugins',{}).get('cad-toolkit@cad-toolkit-local',{}).get('mcp_servers',{})
+        return {c for c in components if policy.get(c,{}).get('enabled',True)}
+
+    def record_prepared(self,component,target):
+        prepared=self.prepared();prepared[component]=str(target);self.state['prepared']=prepared;self.save()
+
+    def prepare_autocad(self,target):
+        target=Path(target);lisp=target/'payload/cad/autocad/mcp_dispatch.lsp';cad_dir=target/'autocad'
+        shutil.copytree(lisp.parent,cad_dir,dirs_exist_ok=True)
+        ipc=(self.root/'ipc').as_posix()+'/'
+        text=lisp.read_text(encoding='utf-8').replace('(setq *mcp-ipc-dir* "C:/temp/")','(setq *mcp-ipc-dir* '+json.dumps(ipc,ensure_ascii=False)+')')
+        (cad_dir/'mcp_dispatch.lsp').write_text(text,encoding='utf-8')
+        shutil.copytree(cad_dir,target/'envs/autocad/Lib/lisp-code',dirs_exist_ok=True)
+
     def preflight(self):
         cad = {c: processes(n) for c, n in zip(COMPONENTS, ("acad.exe", "Inventor.exe", "Rhino.exe"))}
         try: cli = find_codex()
@@ -177,9 +195,12 @@ class Manager:
         for relative, expected in manifest["files"].items():
             self.checkpoint()
             if sha256(within(payload, relative)) != expected: raise ValueError(f"安裝來源損毀：{relative}")
+        self.state['prepared']=self.prepared()
+        self.root.joinpath('ipc').mkdir(parents=True,exist_ok=True)
         # Environments use their final absolute paths; relocating a venv breaks console launchers.
         key = version + "-" + "-".join(sorted(selected)) + "-" + sha256(payload / "bundle.json")[:12]
         target = within(self.root, "versions/" + key)
+        self.install_target=str(target)
         if target.exists() and not (target / "ready.json").exists() and str(target) in self.state["active"].values():
             raise RuntimeError("不能覆寫正在使用的版本")
         if not (target / "ready.json").exists():
@@ -195,6 +216,8 @@ class Manager:
                 self.checkpoint()
                 marker = target / (c + ".complete.json")
                 if marker.exists() and (target / "envs" / c / "Scripts/python.exe").exists():
+                    if c=='autocad':self.prepare_autocad(target)
+                    self.record_prepared(c,target)
                     emit(f"{c} 已完成，接續下一項。", step="install", component=c, outcome="completed", progress=100*(index+1)/len(selected))
                     continue
                 emit(f"正在安裝 {c}；請稍候。", step="install", component=c, progress=100*index/len(selected))
@@ -214,21 +237,17 @@ class Manager:
                     client.initialize()
                     count = len(client.request("tools/list").get("tools", []))
                     if not count: raise RuntimeError(f"{c} 沒有提供工具")
+                if c=='autocad':self.prepare_autocad(target)
                 atomic_json(marker, {"tools": count, "at": utc()})
+                self.record_prepared(c,target)
                 emit(f"{c} 安裝完成，接下來需要在 CAD 內設定。", step="install", component=c, outcome="completed", progress=100*(index+1)/len(selected))
             atomic_json(target / "ready.json", {"version": version, "selected": selected, "installed_at": utc()})
         self.checkpoint()
         self.root.joinpath("ipc").mkdir(exist_ok=True)
         lisp = target / "payload/cad/autocad/mcp_dispatch.lsp"
         if "autocad" in selected:
-            cad_dir = target / "autocad"
-            shutil.copytree(lisp.parent, cad_dir, dirs_exist_ok=True)
-            text = lisp.read_text(encoding="utf-8")
-            ipc = (self.root / "ipc").as_posix() + "/"
-            text = text.replace('(setq *mcp-ipc-dir* "C:/temp/")', '(setq *mcp-ipc-dir* ' + json.dumps(ipc, ensure_ascii=False) + ')')
-            (cad_dir / "mcp_dispatch.lsp").write_text(text, encoding="utf-8")
-            # Match the upstream wheel's LISP_DIR for actionable error messages.
-            shutil.copytree(cad_dir, target / "envs/autocad/Lib/lisp-code", dirs_exist_ok=True)
+            self.prepare_autocad(target)
+        for c in selected:self.record_prepared(c,target)
         self.state["candidate"] = {"path": str(target), "selected": selected, "version": version}
         self.save()
         # Cancellation is deferred during the configuration transaction.
@@ -242,15 +261,26 @@ class Manager:
 
     def configure_plugin(self):
         candidate = self.state.get('candidate')
-        if not candidate or not (Path(candidate['path']) / 'ready.json').exists():
+        prepared=self.prepared()
+        template=(candidate or {}).get('path') or next(iter(prepared.values()),None)
+        if not template:
             raise RuntimeError('請先完成連線工具安裝。')
         self.checkpoint()
         emit('正在安裝 Plugin，完成前請勿關閉。', step='configure', cancellable=False)
-        self.register_plugin(self.state['active'], candidate['path'], set(self.state['active']))
+        self.register_plugin(self.state['active'], template, self.enabled_components(self.state['active']))
         emit('Plugin 已安裝。新元件保持停用，請先逐套檢查連線。', step='plugin', outcome='completed')
 
     def setup(self, payload, selected, setup=None):
-        self.install(payload, selected, setup, defer_plugin=True)
+        failure=None
+        try:self.install(payload, selected, setup, defer_plugin=True)
+        except Cancelled:raise
+        except Exception as exc:
+            target=getattr(self,'install_target',None)
+            prepared=self.prepared()
+            completed=[c for c in selected if prepared.get(c)==target and component_ready(target,c)] if target else []
+            if not completed:raise
+            selected=completed;failure=exc
+            if setup:self.register_windows(Path(setup),read_json(Path(payload)/'bundle.json')['version'])
         pending = set(self.state.get('auto_enable_pending', []))
         for component in selected:
             try:
@@ -258,30 +288,34 @@ class Manager:
                 elif component == 'rhino': self.configure_rhino()
                 pending.add(component)
             except Exception as exc:
+                pending.discard(component)
                 emit(f'{component} 元件已安裝，連線設定需要處理。', step='setup', component=component,
                      outcome='needs_action', next_action=str(exc))
         self.configure_plugin()
         self.state['auto_enable_pending'] = sorted(pending)
         self.save()
+        if failure is not None:
+            emit('部分元件安裝失敗；已完成的 MCP 與原有安裝均已保留，可只重試失敗的元件。',step='setup',outcome='needs_action')
+            raise failure
         emit('安裝完成。開啟軟體後會自動檢查並啟用連線，不需要輸入啟動指令。', step='setup', outcome='completed')
 
     def configure_rhino(self):
         from rhino_setup import install_plugin
-        candidate = self.state.get('candidate')
-        if not candidate or 'rhino' not in candidate.get('selected', []) or not (Path(candidate['path']) / 'ready.json').exists():
+        target=self.prepared().get('rhino')
+        if not target or not component_ready(target,'rhino'):
             raise RuntimeError('請先完成 Rhino 連線工具安裝。')
         self.checkpoint()
         emit('正在安裝 Rhino 自動連線外掛，完成前請勿關閉。', step='configure_rhino', component='rhino', cancellable=False)
-        result = install_plugin(candidate['path'], getattr(self, 'rhino_exe', None))
+        result = install_plugin(target, getattr(self, 'rhino_exe', None))
         result.update(restart_required=bool(processes('Rhino.exe')) and not result.get('already_installed', False), installed_at=utc())
-        atomic_json(Path(candidate['path']) / 'rhino-plugin.json', result)
+        atomic_json(Path(target) / 'rhino-plugin.json', result)
         message = ('外掛已安裝。請自行儲存工作並重新開啟 Rhino，新版會自動連線。'
                    if result['restart_required'] else '外掛已安裝。現在開啟 Rhino，文件準備好後會自動連線。')
         emit(message, step='configure_rhino', component='rhino', outcome='completed', result=result)
 
     def update(self, payload, selected, setup=None):
         """Upgrade the installed set while preserving user policy and root data."""
-        installed = set(self.state['active']) | set((self.state.get('candidate') or {}).get('selected', []))
+        installed = set(self.prepared())
         if set(selected) != installed or not installed:
             raise RuntimeError('更新必須沿用目前已安裝的 MCP 清單。')
         if any(processes({'rhino':'Rhino.exe','autocad':'acad.exe','inventor':'Inventor.exe'}[c]) for c in selected):
@@ -340,16 +374,17 @@ class Manager:
 
     def configure_autocad(self):
         from autocad_setup import install_bundle
-        candidate = self.state.get('candidate')
-        if not candidate or 'autocad' not in candidate.get('selected', []):
+        target=self.prepared().get('autocad')
+        if not target:
             raise RuntimeError('請先完成 AutoCAD 連線工具安裝。')
         self.checkpoint()
-        result = install_bundle(candidate['path'])
+        self.prepare_autocad(target)
+        result = install_bundle(target)
         result['restart_required'] = bool(processes('acad.exe'))
         emit('AutoCAD 自動連線已設定。若已開啟，請儲存工作並重新開啟；之後不需要 APPLOAD。',
              step='configure_autocad', component='autocad', outcome='completed', result=result)
 
-    def register_windows(self, setup):
+    def register_windows(self, setup, version=None):
         if os.name != "nt": return
         import winreg
         app = self.root / "CadToolkitSetup.exe"
@@ -358,7 +393,7 @@ class Manager:
         if setup.resolve() != desktop_app.resolve(): shutil.copy2(setup, desktop_app)
         key_path = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\CadToolkit"
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-            for name, value in {"DisplayName": "MCP Toolkit", "DisplayVersion": self.state["candidate"]["version"],
+            for name, value in {"DisplayName": "MCP Toolkit", "DisplayVersion": version or self.state["candidate"]["version"],
                                 "Publisher": "allen2123231", "InstallLocation": str(self.root),
                                 "UninstallString": f'"{app}" --uninstall'}.items():
                 winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
@@ -369,9 +404,10 @@ class Manager:
 
     def diagnose(self, selected, active=False):
         candidate = self.state.get("candidate")
+        prepared=self.prepared()
         result = {}
         for c in selected:
-            target = self.state["active"].get(c) if active else (candidate or {}).get("path")
+            target = self.state["active"].get(c) if active else prepared.get(c)
             status = {"installed": False, "mcp": False, "cad": False, "bridge": False, "document": None}
             result[c] = status
             if not target or not (Path(target) / "envs" / c).exists():
@@ -450,11 +486,10 @@ class Manager:
     def register_plugin(self, mapping, template_target, enabled):
         marketplace = self.root / "marketplace"
         candidate = self.state.get("candidate")
-        if candidate:
-            mapping = {**{c: candidate["path"] for c in candidate["selected"]}, **mapping}
+        mapping={**self.prepared(),**mapping}
         commands = {c: mcp_command(path, c) for c, path in mapping.items()}
         stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M%S%f")
-        version = read_json(Path(template_target) / "ready.json")["version"] + "+codex." + stamp
+        version = read_json(Path(template_target) / ("ready.json" if (Path(template_target)/'ready.json').exists() else "payload/bundle.json"))["version"] + "+codex." + stamp
         plugin_files(marketplace / "plugins/cad-toolkit", Path(template_target) / "payload/plugins/cad-toolkit",
                      commands, version, mcp_env(self.root), history_root=self.root)
         atomic_json(marketplace / ".agents/plugins/marketplace.json", {"name": "cad-toolkit-local",
@@ -472,19 +507,20 @@ class Manager:
 
     def activate(self, selected):
         candidate = self.state.get("candidate")
-        if not candidate or not set(selected).issubset(candidate["selected"]): raise RuntimeError("請先安裝所選元件")
+        prepared=self.prepared()
+        if not set(selected).issubset(prepared): raise RuntimeError("請先安裝所選元件")
         checks = self.diagnose(selected)
         failed = [c for c in selected if not checks[c]["bridge"]]
         failed += [c for c in selected if checks[c].get('code') == 'NO_DOCUMENT' and c not in failed]
         if failed: raise RuntimeError("以下元件尚未通過 CAD 連線驗證，保留現有設定：" + ", ".join(failed))
         self.checkpoint()
         previous = dict(self.state["active"])
-        desired = {**previous, **{c: candidate["path"] for c in selected}}
+        desired = {**previous, **{c: prepared[c] for c in selected}}
         self.state["previous"] = previous
         self.save()
         try:
             emit("正在切換這套工具的設定；完成前請勿關閉。", step="configure", cancellable=False)
-            self.register_plugin(desired, candidate["path"], set(desired))
+            self.register_plugin(desired, prepared[selected[0]], self.enabled_components(previous)|set(selected))
             self.state["active"] = desired
             self.state['auto_enable_pending'] = [c for c in self.state.get('auto_enable_pending', []) if c not in selected]
             self.save()
@@ -517,7 +553,7 @@ class Manager:
     def uninstall(self):
         if any(processes(name) for name in ('Rhino.exe','acad.exe','Inventor.exe')):
             raise RuntimeError("請先自行儲存工作並關閉 CAD，再解除安裝")
-        targets = set(self.state['active'].values()) | set((self.state.get('previous') or {}).values())
+        targets = set(self.prepared().values()) | set((self.state.get('previous') or {}).values())
         if self.state.get('candidate'): targets.add(self.state['candidate']['path'])
         versions = self.root / 'versions'
         if versions.is_dir():
@@ -537,7 +573,7 @@ class Manager:
             run([cli, "plugin", "marketplace", "remove", "cad-toolkit-local"], timeout=60)
             self.state["plugin_registered"] = False
         self.config.restore_originals(self.state["originals"])
-        target = self.state["active"].get("autocad") or (self.state.get("candidate") or {}).get("path")
+        target = self.prepared().get("autocad")
         if target:
             from autocad_setup import remove_bundle
             remove_bundle(target)

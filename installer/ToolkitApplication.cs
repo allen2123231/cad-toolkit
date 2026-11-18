@@ -55,7 +55,7 @@ public sealed class ToolkitApplication : IDisposable
     void ShowSetup(string? kind,int? step){
         if(wizard!=null){wizard.Show();wizard.Activate();return;}
         wizard=new InstallWindow(host,kind,args.Contains("--apply-update"));wizard.Closed+=async(_,_)=>{
-            string? installed=wizard?.CompletedRoot;wizard=null;
+            string? installed=wizard?.ResumeRoot;wizard=null;
             if(installed!=null&&(installer||!string.Equals(installed,host.Root,StringComparison.OrdinalIgnoreCase))){
                 var start=new System.Diagnostics.ProcessStartInfo(Path.Combine(installed,"McpToolkit.exe")){UseShellExecute=true};start.ArgumentList.Add("--root="+installed);System.Diagnostics.Process.Start(start);Exit();return;
             }

@@ -16,6 +16,7 @@ from window_store import Store, window_lock
 import window_scan
 from common import read_json, atomic_json
 from probe import Client
+from component_state import prepared_targets
 
 NAMES = {"rhino": "Rhino", "autocad": "AutoCAD", "inventor": "Inventor"}
 PROCESSES = {"rhino": "Rhino.exe", "autocad": "acad.exe", "inventor": "Inventor.exe"}
@@ -47,14 +48,16 @@ def discover(root, config):
         settings = {}
         config_data = {}
     sources = {}
+    prepared=prepared_targets(root,state)
     for kind in NAMES:
         target = state.get("active", {}).get(kind)
         pending = kind in state.get('auto_enable_pending', [])
         if pending:
-            target = (state.get('candidate') or {}).get('path')
+            target = prepared.get(kind)
+        if not target:target=prepared.get(kind)
         if target:
             policy = config_data.get("plugins", {}).get("cad-toolkit@cad-toolkit-local", {})
-            enabled = policy.get("enabled", True) and policy.get("mcp_servers", {}).get(kind, {}).get("enabled", False)
+            enabled = kind in state.get('active',{}) and policy.get("enabled", True) and policy.get("mcp_servers", {}).get(kind, {}).get("enabled", False)
             scripts = Path(target) / "envs" / kind / "Scripts"
             command = [str(scripts / "rhinomcp.exe")] if kind == "rhino" else [str(scripts / "python.exe"), "-X", "utf8", "-m", "autocad_mcp" if kind == "autocad" else "src.server"]
             sources[kind] = {"command": command, "python": str(scripts / "python.exe"), "target": target,
@@ -69,12 +72,6 @@ def discover(root, config):
             python = executable if executable.name.lower() in ("python.exe", "pythonw.exe") else executable.with_name("python.exe")
             sources[kind] = {"command": [str(executable), *value.get("args", [])], "python": str(python),
                              "cwd": value.get("cwd"), "env": value.get("env", {}), "managed": False, "enabled": True}
-        else:
-            candidate = state.get("candidate") or {}
-            if kind in candidate.get("selected", []):
-                scripts = Path(candidate["path"]) / "envs" / kind / "Scripts"
-                sources[kind] = {"python": str(scripts / "python.exe"), "target": candidate["path"],
-                                 "managed": True, "enabled": False}
     return sources
 
 

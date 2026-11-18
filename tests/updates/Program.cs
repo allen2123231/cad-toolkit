@@ -29,7 +29,8 @@ class Program {
     static async Task FinishE2E(string file){
         var report=System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(file))!.AsObject();
         string root=Path.GetFullPath(report["root"]!.GetValue<string>()),baseDir=Path.GetFullPath(report["base"]!.GetValue<string>());
-        if(!report["passed"]!.GetValue<bool>()||!baseDir.StartsWith(@"D:\McpToolkit-Beta-E2E-",StringComparison.OrdinalIgnoreCase)||!root.StartsWith(baseDir+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase))throw new Exception("Not the owned E2E installation");
+        bool owned=baseDir.StartsWith(@"D:\McpToolkit-Beta-E2E-",StringComparison.OrdinalIgnoreCase)||baseDir.StartsWith(@"D:\McpToolkit-Repair-E2E-",StringComparison.OrdinalIgnoreCase);
+        if(!report["passed"]!.GetValue<bool>()||!owned||!root.StartsWith(baseDir+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase))throw new Exception("Not the owned E2E installation");
         string global=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),".codex","config.toml");byte[] before=File.ReadAllBytes(global);
         Environment.SetEnvironmentVariable("CODEX_HOME",Path.Combine(baseDir,"private-codex"));Environment.SetEnvironmentVariable("APPDATA",Path.Combine(baseDir,"private-roaming"));Environment.SetEnvironmentVariable("LOCALAPPDATA",Path.Combine(baseDir,"private-local"));
         var service=new ToolkitService(root);await service.Engine("uninstall",["inventor"]);
@@ -44,6 +45,10 @@ class Program {
         string root=Path.Combine(baseDir,"中文 自訂位置");Directory.CreateDirectory(root);
         File.WriteAllText(Path.Combine(root,"state.json"),"""{"active":{"rhino":"old-target"},"candidate":{"selected":["rhino"]}}""");
         File.WriteAllText(Path.Combine(root,"ui-state.json"),"custom settings");File.WriteAllText(Path.Combine(root,"windows.sqlite3"),"existing names");
+        foreach(string kind in new[]{"autocad","inventor"}){
+            string target=Path.Combine(root,"versions","legacy-"+kind),python=Path.Combine(target,"envs",kind,"Scripts","python.exe");Directory.CreateDirectory(Path.GetDirectoryName(python)!);File.WriteAllText(python,"fixture");File.WriteAllText(Path.Combine(target,"ready.json"),JsonSerializer.Serialize(new{selected=new[]{kind}}));
+        }
+        Assert(UpdateController.Components(root).SequenceEqual(new[]{"autocad","inventor","rhino"}),"update recovers installed components omitted by old single-component state");
         var handler=new Fixture();using var client=new HttpClient(handler);using var updates=new UpdateController(root,client);
         int notifications=0;updates.Notify+=_=>notifications++;
         Assert(updates.Due(DateTimeOffset.UtcNow),"initial automatic check due");await updates.Check();

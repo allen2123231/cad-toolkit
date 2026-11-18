@@ -173,6 +173,7 @@ public sealed class ToolkitService
     string InstalledPayload(){
         var state=ExperienceState.Read(root);var paths=new List<string>();
         if(state.TryGetProperty("active",out var active))paths.AddRange(active.EnumerateObject().Select(p=>p.Value.GetString()!));
+        if(state.TryGetProperty("prepared",out var prepared))paths.AddRange(prepared.EnumerateObject().Select(p=>p.Value.GetString()!));
         if(state.TryGetProperty("candidate",out var candidate)&&candidate.ValueKind==JsonValueKind.Object)paths.Add(ExperienceState.Text(candidate,"path"));
         return paths.Select(p=>Path.Combine(p,"payload")).FirstOrDefault(p=>File.Exists(Path.Combine(p,"runtime/python.exe")))??throw new InvalidOperationException("找不到已安裝環境，請使用同版本安裝程式修復後再解除安裝。");
     }

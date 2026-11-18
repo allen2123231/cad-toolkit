@@ -69,7 +69,17 @@ public sealed class UpdateController : IDisposable {
     public static string[] Components(string root){
         var state=ExperienceState.Read(root);var selected=new HashSet<string>();
         if(state.TryGetProperty("active",out var active))foreach(var p in active.EnumerateObject())selected.Add(p.Name);
+        if(state.TryGetProperty("prepared",out var prepared))foreach(var p in prepared.EnumerateObject())selected.Add(p.Name);
         if(state.TryGetProperty("candidate",out var candidate)&&candidate.ValueKind==JsonValueKind.Object&&candidate.TryGetProperty("selected",out var list))foreach(var item in list.EnumerateArray())selected.Add(item.GetString()!);
+        string versions=Path.Combine(root,"versions");
+        if(Directory.Exists(versions))foreach(string target in Directory.EnumerateDirectories(versions)){
+            if((new DirectoryInfo(target).Attributes&FileAttributes.ReparsePoint)!=0)continue;
+            var marker=ExperienceState.Read(target,"ready.json");
+            foreach(string kind in ExperienceState.Names.Keys){
+                bool done=File.Exists(Path.Combine(target,kind+".complete.json"))||(marker.TryGetProperty("selected",out var chosen)&&chosen.ValueKind==JsonValueKind.Array&&chosen.EnumerateArray().Any(v=>v.GetString()==kind));
+                if(done&&File.Exists(Path.Combine(target,"envs",kind,"Scripts","python.exe")))selected.Add(kind);
+            }
+        }
         return selected.Where(ExperienceState.Names.ContainsKey).Order().ToArray();
     }
     public static string? CloseApplications(string[] selected){

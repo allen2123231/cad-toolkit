@@ -14,7 +14,7 @@ public sealed class InstallWindow : Window
     readonly RuntimeHost host;
     ToolkitService service;
     readonly TextBox destination=new(){FontSize=12,Padding=new Thickness(8),Margin=new Thickness(0,5,8,5)};
-    public string? CompletedRoot=>finished?service.Root:null;
+    public string? ResumeRoot=>finished||(File.Exists(Path.Combine(service.Root,"McpToolkit.exe"))&&UpdateController.Components(service.Root).Length>0)?service.Root:null;
     readonly StackPanel body=new(),footer=new();
     readonly TextBlock status=Text("",12,color:Muted);
     readonly TextBox log=new(){IsReadOnly=true,TextWrapping=TextWrapping.Wrap,MinHeight=80,MaxHeight=130,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,FontSize=11};

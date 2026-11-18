@@ -92,6 +92,7 @@ public sealed class RuntimeHost : IDisposable
         var state=ExperienceState.Read(Root);
         var targets=new List<string>();
         if(state.TryGetProperty("active",out var active))targets.AddRange(active.EnumerateObject().Select(p=>p.Value.GetString()!));
+        if(state.TryGetProperty("prepared",out var prepared))targets.AddRange(prepared.EnumerateObject().Select(p=>p.Value.GetString()!));
         if(state.TryGetProperty("candidate",out var candidate)&&candidate.ValueKind==JsonValueKind.Object)targets.Add(ExperienceState.Text(candidate,"path"));
         foreach(var target in targets){string file=Path.Combine(target,"payload/runtime/python.exe");if(File.Exists(file))return file;}
         var downloads=Path.Combine(Root,"downloads");
