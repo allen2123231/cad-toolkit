@@ -15,7 +15,7 @@ import runtime
 class ComponentRepairTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(prefix='Toolkit 單項修復 ')
-        self.base=Path(self.temp.name);self.root=self.base/'installed'
+        self.base=Path(self.temp.name).resolve();self.root=self.base/'installed'
         self.environment=patch.dict(os.environ,{'CODEX_HOME':str(self.base/'private-codex')});self.environment.start()
         self.manager=Manager(self.root)
         self.old=self.root/'versions/all-three';self.payload=self.base/'payload'
