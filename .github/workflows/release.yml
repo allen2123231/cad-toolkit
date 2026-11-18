@@ -41,7 +41,10 @@ jobs:
       - name: 檢查新管理介面與安裝畫面
         run: dotnet run --project tests/desktop/DesktopChecks.csproj -c Release -- test-results/desktop
       - name: 檢查自動更新與完整解除安裝
-        run: dotnet run --project tests/updates/UpdateChecks.csproj -c Release
+        run: |
+          dotnet run --project tests/updates/UpdateChecks.csproj -c Release
+          dotnet run --project tests/updates/UpdateChecks.csproj -c Release -- --repro-update-feedback
+          dotnet run --project tests/desktop/DesktopChecks.csproj -c Release -- test-results/update-responsive --repro-update-responsive
       - name: 檢查打包後 Rhino 視窗保護
         shell: pwsh
         run: |

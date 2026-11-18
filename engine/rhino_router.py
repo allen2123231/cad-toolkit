@@ -200,7 +200,7 @@ class Router:
 
     def request(self, method, params):
         if method == "initialize":
-            return {"protocolVersion": params.get("protocolVersion", "2025-03-26"), "capabilities": {"tools": {}, "resources": {}}, "serverInfo": {"name": "MCP Toolkit Rhino", "version": "0.5.0-beta.3"}, "instructions": INSTRUCTIONS}
+            return {"protocolVersion": params.get("protocolVersion", "2025-03-26"), "capabilities": {"tools": {}, "resources": {}}, "serverInfo": {"name": "MCP Toolkit Rhino", "version": "0.5.0-beta.4"}, "instructions": INSTRUCTIONS}
         if method == "tools/call":
             try:
                 return self.call(params["name"], params.get("arguments") or {})

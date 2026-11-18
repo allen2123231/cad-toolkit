@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using static CadToolkit.ToolkitVisuals;
 
@@ -24,6 +25,10 @@ public sealed class InstallWindow : Window
     CancellationTokenSource? cancellation;
     bool busy,transaction,finished;
     readonly bool updating;
+    readonly Stopwatch elapsed=new();
+    readonly TextBlock activity=Text("",12,color:Muted);
+    readonly DispatcherTimer heartbeat=new(){Interval=TimeSpan.FromSeconds(1)};
+    DateTime lastActivity;
     public InstallWindow(RuntimeHost host,string? kind=null,bool updating=false) {
         this.updating=updating;
         this.host=host;service=new ToolkitService(host.Root);destination.Text=host.Root;
@@ -35,13 +40,15 @@ public sealed class InstallWindow : Window
         footer.Margin=new Thickness(28,14,28,20);DockPanel.SetDock(footer,Dock.Bottom);shell.Children.Add(footer);
         shell.Children.Add(new ScrollViewer{Content=body,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Padding=new Thickness(28,10,28,10)});
         ConfigureService(host.Root);
+        heartbeat.Tick+=(_,_)=>activity.Text="已耗時 "+elapsed.Elapsed.ToString(@"mm\:ss")+((DateTime.UtcNow-lastActivity).TotalSeconds>=20?" · 正在等候元件回報，可展開詳細資料查看":" · 正在執行，請稍候");
+        Closed+=(_,_)=>heartbeat.Stop();
         Closing+=(_,e)=>{if(busy){e.Cancel=true;status.Text=transaction?"正在完成設定，請等待完成。":"正在安裝，請使用「停止安裝」安全結束。";}};
         SelectPage();
         if(updating){selected.Clear();foreach(string id in UpdateController.Components(host.Root))selected.Add(id);Loaded+=async(_,_)=>{await Install();if(finished)Close();};}
     }
     void ConfigureService(string root){
         service=new ToolkitService(root);
-        service.Log=value=>{log.AppendText(value+"\n");log.ScrollToEnd();};service.Report=value=>status.Text=value;
+        service.Log=value=>{log.AppendText(value+"\n");log.ScrollToEnd();};service.Report=value=>{status.Text=value;lastActivity=DateTime.UtcNow;};
         service.Progress=value=>{progress.IsIndeterminate=!value.HasValue;if(value.HasValue)progress.Value=value.Value;};
         service.Event=value=>{if(value.TryGetProperty("cancellable",out var flag)&&flag.ValueKind==JsonValueKind.False)transaction=true;if(ExperienceState.Text(value,"outcome")=="needs_action")needsAction.Add(ExperienceState.Text(value,"next_action"));};
     }
@@ -77,13 +84,14 @@ public sealed class InstallWindow : Window
         catch(Exception ex){status.Text=ex.Message;return;}
         ConfigureService(installRoot);
         busy=true;transaction=false;cancellation=new();service.Token=cancellation.Token;needsAction.Clear();body.Children.Clear();footer.Children.Clear();
+        elapsed.Restart();lastActivity=DateTime.UtcNow;activity.Text="已耗時 00:00 · 正在準備更新";heartbeat.Start();progress.IsIndeterminate=true;status.Text="正在準備更新，原設定會保留…";
         if(log.Parent is ContentControl oldLog)oldLog.Content=null;
-        body.Children.Add(Text("正在安裝 MCP",26,true));body.Children.Add(Text("正在準備獨立環境、自動連線與 AI 工具設定。你不需要另外執行指令。",13,color:Muted));body.Children.Add(progress);body.Children.Add(status);body.Children.Add(new Expander{Header="安裝詳細資料",Content=log,Margin=new Thickness(0,18,0,0)});
+        body.Children.Add(Text(updating?"正在更新 MCP Toolkit":"正在安裝 MCP",26,true));body.Children.Add(Text("準備套件 → 解壓縮 → 更新元件與外掛 → 保留設定並重新啟動",13,color:Muted));body.Children.Add(progress);body.Children.Add(status);body.Children.Add(activity);body.Children.Add(new Expander{Header="安裝詳細資料",Content=log,Margin=new Thickness(0,18,0,0)});
         footer.Children.Add(Button("停止安裝",()=>{if(transaction){status.Text="正在完成設定，請等待完成。";return;}cancellation.Cancel();service.RequestStop();status.Text="正在安全停止，已完成的元件會保留。";}));
         string? failure=null;
-        try{InstallLocation.PrepareUpgrade(host.Root,installRoot);await service.Engine(updating?"update":"setup",selected.ToArray());finished=true;}
+        try{await Dispatcher.Yield(DispatcherPriority.Background);await Task.Run(()=>InstallLocation.PrepareUpgrade(host.Root,installRoot),cancellation.Token);cancellation.Token.ThrowIfCancellationRequested();await service.Engine(updating?"update":"setup",selected.ToArray());finished=true;}
         catch(Exception ex){failure=ex.Message;}
-        finally{busy=false;transaction=false;progress.IsIndeterminate=false;cancellation.Dispose();}
+        finally{busy=false;transaction=false;heartbeat.Stop();elapsed.Stop();progress.IsIndeterminate=false;cancellation.Dispose();}
         body.Children.Clear();footer.Children.Clear();
         body.Children.Add(Text(failure!=null?"安裝尚未完成":needsAction.Count>0?"元件已安裝，部分設定待完成":"安裝完成",26,true));
         body.Children.Add(Text(failure??"開啟要使用的軟體，MCP Toolkit 會自動檢查並啟用連線。到 Codex 開啟新對話後，就可以提出需求。",13,color:Muted));

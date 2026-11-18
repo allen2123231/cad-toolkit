@@ -7,6 +7,11 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Automation;
+using System.Net.Http;
+
+sealed class HeldDownload : HttpMessageHandler {
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken token){await Task.Delay(Timeout.Infinite,token);throw new Exception("Unexpected download completion");}
+}
 
 class DesktopChecks
 {
@@ -59,6 +64,20 @@ class DesktopChecks
         }
         string output=Path.GetFullPath(args.Length>0?args[0]:"test-results/desktop");Directory.CreateDirectory(output);var app=new Application{ShutdownMode=ShutdownMode.OnExplicitShutdown};
         app.Startup+=async(_,_)=>{try{
+            if(args.Contains("--repro-update-responsive")){
+                string root=Path.Combine(output,"update-root");Directory.CreateDirectory(root);File.WriteAllText(Path.Combine(root,"state.json"),"""{"active":{"rhino":"fixture"}}""");
+                using var client=new HttpClient(new HeldDownload());using var updateHost=new RuntimeHost(root,[],false,updateClient:client);
+                var service=(ToolkitService)typeof(UpdateController).GetField("service",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(updateHost.Updates)!;
+                typeof(UpdateController).GetProperty("Available")!.SetValue(updateHost.Updates,JsonDocument.Parse("""{"version":"99.0.0-beta.1","setup":{"url":"https://github.com/allen2123231/cad-toolkit/releases/download/v99.0.0-beta.1/McpToolkitSetup.exe","sha256":"0000000000000000000000000000000000000000000000000000000000000000"},"payload":{"url":"https://github.com/allen2123231/cad-toolkit/releases/download/v99.0.0-beta.1/cad-toolkit-payload.zip","sha256":"0000000000000000000000000000000000000000000000000000000000000000"}}""").RootElement.Clone());
+                updateHost.Updates.ApplicationBlocker=_=>null;bool launched=false;updateHost.Updates.LaunchInstaller+=_=>launched=true;
+                var view=new ManagerWindow(updateHost,(_,_)=>{});view.Show();view.Navigate("install");var pending=updateHost.Updates.Apply();await Task.Delay(100);
+                Assert(Find<ProgressBar>(view).Any(p=>p.IsIndeterminate),"Unknown progress is visibly animated");Assert(Find<Button>(view).Any(b=>b.Content?.ToString()=="取消下載"),"Download cancel action is available");
+                var title=Find<TextBlock>(view).First(t=>t.Text=="MCP Toolkit");for(int i=0;i<100;i++)service.Report("下載安裝套件 · "+i+" MB");
+                Assert(Find<TextBlock>(view).Contains(title),"Download feedback keeps the existing visual tree");
+                await Task.Delay(2200);Assert(Find<TextBlock>(view).Any(t=>t.Text.Contains("已耗時")&&!t.Text.Contains("00:00")),"Dispatcher and elapsed feedback remain live during stalled download");
+                Capture(view,Path.Combine(output,"update-progress-144.png"),144);updateHost.Updates.CancelDownload();await pending;Assert(!launched&&!updateHost.Updates.Busy,"Cancelling stalled download never starts installation");view.Close();
+                Console.WriteLine("Responsive update UI checks passed: "+count);app.Shutdown(0);return;
+            }
             if(args.Contains("--repro-refresh-cards")){
                 var delayed=new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);var second=new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);var secondStarted=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);int requests=0;
                 Task<JsonElement> Probe(string action,string[] arguments){if(action!="snapshot")return Task.FromResult(JsonDocument.Parse("""{"windows":[],"requests":[],"confirmations":[]}""").RootElement.Clone());requests++;if(requests==1)return delayed.Task;if(requests==2){secondStarted.SetResult(true);return second.Task;}return Task.FromException<JsonElement>(new InvalidOperationException("fixture diagnostic failure"));}

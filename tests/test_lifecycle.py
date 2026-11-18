@@ -107,6 +107,20 @@ class ConfigTests(Fixture):
         self.assertIn("# 保留註解", self.file.read_text(encoding="utf-8"))
         self.assertTrue(list((self.base / "backups").glob("*.toml")))
 
+    def test_config_replace_retries_transient_windows_lock(self):
+        import os
+        original=self.file.read_bytes();replace=os.replace;attempts=[]
+        def locked(source,target):
+            attempts.append(1)
+            if len(attempts)<3:
+                self.assertEqual(self.file.read_bytes(),original)
+                raise PermissionError('transient reader lock')
+            return replace(source,target)
+        with patch('manager.os.replace',side_effect=locked):self.editor.save(self.editor.load())
+        self.assertEqual(len(attempts),3)
+        self.assertEqual(self.file.read_bytes(),original)
+        self.assertFalse(list(self.home.glob('*.tmp')))
+
     def test_changed_user_entry_not_restored(self):
         prior = {}; self.editor.set_policy({"autocad"}, prior)
         doc = self.editor.load(); doc["mcp_servers"]["autocad-mcp"]["command"] = "user-change.exe"

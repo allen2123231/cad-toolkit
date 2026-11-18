@@ -22,11 +22,15 @@ def read_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8-sig"))
 
 def atomic_json(path, value):
+    atomic_text(path,json.dumps(value, ensure_ascii=False, indent=2) + "\n")
+
+
+def atomic_text(path, text):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name+'.'+uuid.uuid4().hex+'.tmp')
     try:
-        tmp.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        tmp.write_text(text, encoding="utf-8")
         for attempt in range(6):
             try:os.replace(tmp,path);break
             except PermissionError:

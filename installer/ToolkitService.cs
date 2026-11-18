@@ -22,6 +22,7 @@ public sealed class ToolkitService
     public Action<double?> Progress = _ => {};
     public Action<JsonElement> Event = _ => {};
     public CancellationToken Token { get; set; }
+    public TimeSpan DownloadIdleTimeout {get;set;}=TimeSpan.FromSeconds(45);
     readonly string cancelId = Guid.NewGuid().ToString("N");
     public string CancelFile => Path.Combine(root, "cancel-" + cancelId + ".request");
     public ToolkitService(string root, HttpClient? client = null) {
@@ -40,27 +41,37 @@ public sealed class ToolkitService
         var temp = file + "." + Guid.NewGuid().ToString("N") + ".part";
         try
         {
-            using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, Token); response.EnsureSuccessStatusCode();
+            Progress(null);Report("正在連線下載…");await Task.Yield();
+            using var idle=CancellationTokenSource.CreateLinkedTokenSource(Token);idle.CancelAfter(DownloadIdleTimeout);
+            using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, idle.Token); response.EnsureSuccessStatusCode();
             var total = response.Content.Headers.ContentLength;
+            var feedback=Stopwatch.StartNew();
             using (var input = await response.Content.ReadAsStreamAsync())
             using (var target = File.Create(temp))
             {
                 byte[] buffer = new byte[1024 * 1024]; long count = 0; int n;
-                while ((n = await input.ReadAsync(buffer, Token)) > 0)
+                while (true)
                 {
-                    await target.WriteAsync(buffer.AsMemory(0, n), Token); count += n; Progress(total.HasValue ? 100.0 * count / total.Value : null);
-                    Report($"下載中：{count / 1048576} MB" + (total.HasValue ? $" / {total / 1048576} MB" : ""));
+                    idle.CancelAfter(DownloadIdleTimeout);n=await input.ReadAsync(buffer,idle.Token);idle.CancelAfter(Timeout.InfiniteTimeSpan);if(n==0)break;
+                    await target.WriteAsync(buffer.AsMemory(0, n), Token); count += n;
+                    if(feedback.ElapsedMilliseconds>=500){
+                        Progress(total.HasValue ? 100.0 * count / total.Value : null);
+                        Report($"下載中：{count / 1048576} MB" + (total.HasValue ? $" / {total / 1048576} MB" : ""));feedback.Restart();
+                    }
                 }
             }
+            Progress(null);Report("正在驗證下載檔案…");await Task.Yield();
             var actual = await Hash(temp);
             if (!actual.Equals(expected, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("SHA-256 不符，已拒絕檔案。");
             File.Move(temp, file, true);
+            Progress(100);Report("下載及驗證完成");
         }
+        catch(OperationCanceledException) when(!Token.IsCancellationRequested){throw new IOException("下載長時間未收到資料，請確認網路後重試；原版本與設定仍保留。");}
         finally { if (File.Exists(temp)) File.Delete(temp); }
     }
     static async Task<string> Hash(string file)
     {
-        using var stream = File.OpenRead(file);
+        using var stream = new FileStream(file,FileMode.Open,FileAccess.Read,FileShare.Read,1024*1024,FileOptions.Asynchronous|FileOptions.SequentialScan);
         return Convert.ToHexString(await SHA256.HashDataAsync(stream)).ToLowerInvariant();
     }
 
@@ -76,10 +87,13 @@ public sealed class ToolkitService
         var adjacent = Path.Combine(AppContext.BaseDirectory, "cad-toolkit-payload.zip");
         if (!File.Exists(archive) || !string.Equals(await Hash(archive), hash, StringComparison.OrdinalIgnoreCase))
         {
-            if (File.Exists(adjacent) && string.Equals(await Hash(adjacent), hash, StringComparison.OrdinalIgnoreCase)) File.Copy(adjacent, archive, true);
+            if (File.Exists(adjacent) && string.Equals(await Hash(adjacent), hash, StringComparison.OrdinalIgnoreCase)) {
+                Progress(null);Report("正在複製已驗證的安裝套件…");
+                await Task.Run(()=>File.Copy(adjacent,archive,true),Token);
+            }
             else { Log("下載固定版本安裝套件（含 Python 與 CAD 元件）…"); await Download(spec.GetProperty("url").GetString()!, archive, hash); }
         }
-        Report("正在解壓縮安裝環境…");
+        Progress(null);Report("正在解壓縮安裝環境…");
         var staging = destination + "." + Guid.NewGuid().ToString("N");
         try { await Task.Run(() =>
         {
@@ -130,6 +144,7 @@ public sealed class ToolkitService
         start.ArgumentList.Add("--cancel-file"); start.ArgumentList.Add(CancelFile);
         if (File.Exists(CancelFile)) File.Delete(CancelFile);
         Token.ThrowIfCancellationRequested();
+        Progress(null);Report(action=="update"?"正在備份設定並更新 MCP 元件…":"正在準備 MCP 元件…");
         Log("開始：" + action);
         using var process = Process.Start(start)!;
         var stderr = process.StandardError.ReadToEndAsync();

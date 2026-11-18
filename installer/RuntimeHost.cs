@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows.Threading;
@@ -37,10 +38,10 @@ public sealed class RuntimeHost : IDisposable
     DateTime windowCheckAt;
     readonly CancellationTokenSource stop=new();
     readonly Dictionary<string,DateTime> activationAttempts=new();
-    public RuntimeHost(string root,string[] args,bool start=true,Func<string,string[],Task<JsonElement>>? commandRunner=null) {
+    public RuntimeHost(string root,string[] args,bool start=true,Func<string,string[],Task<JsonElement>>? commandRunner=null,HttpClient? updateClient=null) {
         this.commandRunner=commandRunner;
         Root=root;monitoring=start;
-        Updates=new UpdateController(root);Updates.Changed+=()=>{if(dispatcher.CheckAccess())Changed?.Invoke();else dispatcher.BeginInvoke(()=>Changed?.Invoke());};
+        Updates=new UpdateController(root,updateClient);
         using var release=Assembly.GetExecutingAssembly().GetManifestResourceStream("CadToolkitSetup.release.json")!;
         Version=JsonDocument.Parse(release).RootElement.GetProperty("version").GetString()!;
         helpers=Path.Combine(root,"desktop",Version,"engine");Directory.CreateDirectory(helpers);

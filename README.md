@@ -4,11 +4,11 @@ Windows 右下角的 MCP 管理程式，整合 **Rhino、AutoCAD、Inventor**。
 
 點系統匣圖示查看小型狀態面板，需要時再開完整管理視窗。顯示目前文件、連線方式／端口、MCP 版本、安裝狀態與最近指令。
 
-目前修正版為 **0.5.0-beta.3（本機／CI 測試版）**，合併 Toolkit 更新介面、改善重新檢查回饋並處理 Rhino 舊外掛重裝。公開下載暫維持 0.5.0-beta.1；新版安裝包仍受程式簽章發布門檻限制。
+目前開發修正版為 **0.5.0-beta.4（本機／CI 測試版）**，改善更新期間的介面回應、階段進度與取消下載。公開下載為 **0.5.0-beta.3（未簽章 Beta）**；Beta 3 經維護者單次例外同意發布，後續版本預設仍受程式簽章發布門檻限制。
 
 **Windows 相容性：本 Beta 尚未簽章，開啟 Smart App Control 的電腦可能無法安裝或載入部分元件。正式簽章與 SAC 實機驗收尚未完成。** [簽章盤點與後續處理](docs/windows-signing.md)
 
-**[下載已發布 Windows 預覽版](https://github.com/allen2123231/cad-toolkit/releases/tag/v0.5.0-beta.1)** · **[第一次使用](docs/getting-started.md)** · **[驗證範圍](docs/validation.md)**
+**[下載已發布 Windows 預覽版](https://github.com/allen2123231/cad-toolkit/releases/tag/v0.5.0-beta.3)** · **[第一次使用](docs/getting-started.md)** · **[驗證範圍](docs/validation.md)**
 
 <img src="docs/images/mcp-install.png" width="620" alt="MCP Toolkit 新安裝介面，實際 WPF 渲染，示範資料">
 
@@ -49,6 +49,6 @@ MCP Toolkit 本身尚未簽章，完整乾淨 Windows 與真人新手驗收尚�
 
 離線安裝可把同版本 `cad-toolkit-payload.zip` 放在 EXE 旁。CAD 授權及帳號登入仍可能需要網路。
 
-[開發文件](docs/development.md) · [本版更新](docs/release-0.5.0-beta.3.md)
+[開發文件](docs/development.md) · [本版更新](docs/release-0.5.0-beta.4.md)
 
 三套 MCP 分開維護：[Rhino](https://github.com/allen2123231/rhinomcp) · [AutoCAD](https://github.com/allen2123231/autocad-mcp) · [Inventor](https://github.com/allen2123231/inventor-mcp)。圖示及產品名稱屬各原權利人，必要授權文件隨套件保留。

@@ -25,6 +25,15 @@ public sealed class UpdateController : IDisposable {
     public UpdatePreferences Preferences {get;}
     public JsonElement? Available {get;private set;}
     public bool Busy {get;private set;}
+    public bool Applying {get;private set;}
+    public double? Percent {get;private set;}
+    public string Stage {get;private set;}="";
+    readonly Stopwatch elapsed=new();
+    DateTime lastActivity;
+    CancellationTokenSource? downloadStop;
+    public TimeSpan Elapsed=>elapsed.Elapsed;
+    public string Activity=>"已耗時 "+Elapsed.ToString(@"mm\:ss")+((DateTime.UtcNow-lastActivity).TotalSeconds>=15?" · 最近進度回報 "+(int)(DateTime.UtcNow-lastActivity).TotalSeconds+" 秒前，可取消下載後重試":" · 更新作業進行中");
+    public bool CanCancel=>Applying&&downloadStop!=null;
     public string Message {get;private set;}="尚未檢查更新";
     public string? DownloadedInstaller {get;private set;}
     public event Action? Changed;
@@ -36,7 +45,7 @@ public sealed class UpdateController : IDisposable {
     public UpdateController(string root,HttpClient? client=null){
         this.root=root;file=Path.Combine(root,"updates.json");service=new ToolkitService(root,client);
         try{Preferences=JsonSerializer.Deserialize<UpdatePreferences>(File.ReadAllText(file))??new(){Beta=service.Version.Contains('-')};}catch(Exception ex) when(ex is IOException or JsonException){Preferences=new(){Beta=service.Version.Contains('-')};}
-        service.Progress=_=>Changed?.Invoke();service.Report=text=>{Message=text;Changed?.Invoke();};
+        service.Progress=value=>Percent=value;service.Report=text=>{lastActivity=DateTime.UtcNow;Message=(Applying?Stage+" · ":"")+text;Changed?.Invoke();};
         timer.Tick+=async(_,_)=>await Check();
     }
     public void Start(){timer.Start();_=Check();}
@@ -90,19 +99,27 @@ public sealed class UpdateController : IDisposable {
         if(Busy||Available is not JsonElement release)return;
         var selected=Components(root);if(selected.Length==0){Message="請先完成 MCP 安裝。";Changed?.Invoke();return;}
         if(ApplicationBlocker(selected) is string reason){Message=reason;Changed?.Invoke();return;}
-        Busy=true;Changed?.Invoke();
+        Busy=true;Applying=true;elapsed.Restart();lastActivity=DateTime.UtcNow;
+        downloadStop=CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
+        void Step(string stage){Stage=stage;Percent=null;Message=stage+"…";lastActivity=DateTime.UtcNow;Changed?.Invoke();}
         try{
-            service.Token=stop.Token;string version=release.GetProperty("version").GetString()!;
+            service.Token=downloadStop.Token;string version=release.GetProperty("version").GetString()!;
             if(!System.Text.RegularExpressions.Regex.IsMatch(version,@"^\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?$"))throw new InvalidDataException("版本格式不符");
             var spec=release.GetProperty("setup");string folder=Path.Combine(root,"updates",version+"-"+spec.GetProperty("sha256").GetString()![..12]);
             string exe=Path.Combine(folder,"McpToolkitSetup.exe");
+            Step("1／3 下載安裝套件");
             await service.Download(release.GetProperty("payload").GetProperty("url").GetString()!,Path.Combine(folder,"cad-toolkit-payload.zip"),release.GetProperty("payload").GetProperty("sha256").GetString()!);
+            Step("2／3 下載安裝程式");
             await service.Download(spec.GetProperty("url").GetString()!,exe,spec.GetProperty("sha256").GetString()!);
+            service.Token.ThrowIfCancellationRequested();downloadStop.Dispose();downloadStop=null;
+            Step("3／3 開啟更新視窗");await Task.Yield();
             var start=new ProcessStartInfo(exe){UseShellExecute=true};start.ArgumentList.Add("--apply-update");start.ArgumentList.Add("--root="+root);start.ArgumentList.Add("--expected-version="+version);
             DownloadedInstaller=exe;Message="下載驗證完成，正在更新並保留設定…";
             if(LaunchInstaller!=null)LaunchInstaller(start);else Process.Start(start);
-        }catch(Exception ex) when(ex is IOException or InvalidDataException or HttpRequestException or OperationCanceledException or System.ComponentModel.Win32Exception or InvalidOperationException){Message="更新未完成，原版本與設定仍保留："+ex.Message;}
-        finally{Busy=false;Changed?.Invoke();}
+        }catch(OperationCanceledException){Message="已取消下載更新，原版本與設定仍保留。";}
+        catch(Exception ex) when(ex is IOException or InvalidDataException or HttpRequestException or System.ComponentModel.Win32Exception or InvalidOperationException){Message="更新未完成，原版本與設定仍保留："+ex.Message;}
+        finally{downloadStop?.Dispose();downloadStop=null;elapsed.Stop();Busy=false;Applying=false;Percent=null;Changed?.Invoke();}
     }
+    public void CancelDownload(){downloadStop?.Cancel();}
     public void Dispose(){timer.Stop();stop.Cancel();stop.Dispose();}
 }

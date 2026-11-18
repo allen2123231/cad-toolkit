@@ -12,7 +12,7 @@ import traceback
 import copy
 
 sys.path.insert(0, str(Path(__file__).parent / "vendor"))
-from common import COMPONENTS, SKILLS, atomic_json, extract_zip, install_lock, read_json, run, sha256, within
+from common import COMPONENTS, SKILLS, atomic_json, atomic_text, extract_zip, install_lock, read_json, run, sha256, within
 from probe import Client
 from experience import Cancelled, friendly_error, outcome
 from component_state import prepared_targets,component_ready
@@ -111,9 +111,7 @@ class ConfigEditor:
         self.backups.mkdir(parents=True, exist_ok=True)
         if self.path.exists():
             shutil.copy2(self.path, self.backups / (dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f") + ".toml"))
-        temp = self.path.with_suffix(".cad-toolkit.tmp")
-        temp.write_text(self.tomlkit.dumps(doc), encoding="utf-8")
-        os.replace(temp, self.path)
+        atomic_text(self.path,self.tomlkit.dumps(doc))
 
     def conflicts(self, doc, component):
         result = []

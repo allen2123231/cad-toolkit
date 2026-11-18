@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using static CadToolkit.ToolkitVisuals;
 
@@ -16,6 +17,11 @@ public sealed class ManagerWindow : Window
     readonly StackPanel body=new(),nav=new();
     readonly TextBlock footer=Text("",11,color:Muted);
     string page="overview";
+    TextBlock? updateMessage,updateActivity;
+    ProgressBar? updateProgress;
+    bool renderedBusy,renderedVisible,renderedCancelable;
+    string? renderedVersion;
+    readonly DispatcherTimer updateClock=new(){Interval=TimeSpan.FromSeconds(1)};
     public ManagerWindow(RuntimeHost host,Action<string?,int?> setup) {
         this.host=host;this.setup=setup;
         System.Windows.Automation.AutomationProperties.SetAutomationId(this,"manager-"+ToolkitApplication.Identity(host.Root));
@@ -31,7 +37,17 @@ public sealed class ManagerWindow : Window
         var workspace=new DockPanel();Grid.SetColumn(workspace,1);shell.Children.Add(workspace);
         footer.Margin=new Thickness(30,10,30,14);DockPanel.SetDock(footer,Dock.Bottom);workspace.Children.Add(footer);
         workspace.Children.Add(new ScrollViewer{Content=body,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Padding=new Thickness(30,25,30,25)});
-        host.Changed+=Render;Closed+=(_,_)=>host.Changed-=Render;Render();
+        host.Changed+=Render;host.Updates.Changed+=UpdateFeedback;
+        updateClock.Tick+=(_,_)=>{if(updateActivity!=null&&host.Updates.Applying)updateActivity.Text=host.Updates.Activity;};updateClock.Start();
+        Closed+=(_,_)=>{host.Changed-=Render;host.Updates.Changed-=UpdateFeedback;updateClock.Stop();};Render();
+    }
+    void UpdateFeedback(){
+        if(!Dispatcher.CheckAccess()){Dispatcher.BeginInvoke(UpdateFeedback);return;}
+        if(page!="install")return;
+        if(renderedBusy!=host.Updates.Busy||renderedVisible!=host.Updates.Visible||renderedVersion!=host.Updates.Version||renderedCancelable!=host.Updates.CanCancel){Render();return;}
+        if(updateMessage!=null)updateMessage.Text=host.Updates.Message;
+        if(updateActivity!=null)updateActivity.Text=host.Updates.Activity;
+        if(updateProgress!=null){updateProgress.IsIndeterminate=!host.Updates.Percent.HasValue;updateProgress.Value=host.Updates.Percent??0;}
     }
     public void Navigate(string target){page=target;Render();}
     void Header(string title,string subtitle) {body.Children.Add(Text(title,27,true));body.Children.Add(Text(subtitle,12,color:Muted));}
@@ -40,6 +56,7 @@ public sealed class ManagerWindow : Window
         body.Children.Add(new Border{Child=panel,BorderBrush=Line,BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(7),Padding=new Thickness(18),Margin=new Thickness(0,14,0,0)});return panel;
     }
     void Render() {
+        updateMessage=null;updateActivity=null;updateProgress=null;renderedBusy=host.Updates.Busy;renderedVisible=host.Updates.Visible;renderedVersion=host.Updates.Version;renderedCancelable=host.Updates.CanCancel;
         body.Children.Clear();nav.Children.Clear();footer.Text=host.Message;
         foreach(var item in new[]{("overview","MCP 狀態"),("history","最近指令"),("install","安裝與版本"),("settings","設定")}){
             string target=item.Item1;var button=Button(item.Item2,()=>Navigate(target));button.HorizontalContentAlignment=HorizontalAlignment.Left;button.Padding=new Thickness(14,11,14,11);button.Margin=new Thickness(0,3,0,3);button.BorderThickness=new Thickness(0);button.Background=page==target?Color("#E3ECFF"):Brushes.Transparent;button.Foreground=page==target?Blue:Muted;nav.Children.Add(button);
@@ -103,7 +120,13 @@ public sealed class ManagerWindow : Window
     }
     void Installations() {
         Header("安裝與版本","採用經 Toolkit 測試的固定組合，各套軟體可獨立安裝。");
-        var updates=Card("MCP Toolkit",host.Version+(host.Version.Contains('-')?" · Beta 測試版":"")+" · Windows x64");updates.Children.Add(Text(host.Updates.Message,12,color:Muted));
+        var updates=Card("MCP Toolkit",host.Version+(host.Version.Contains('-')?" · Beta 測試版":"")+" · Windows x64");updateMessage=Text(host.Updates.Message,12,color:Muted);updates.Children.Add(updateMessage);
+        if(host.Updates.Applying){
+            updateProgress=new ProgressBar{Height=6,Minimum=0,Maximum=100,IsIndeterminate=!host.Updates.Percent.HasValue,Value=host.Updates.Percent??0,Margin=new Thickness(0,12,0,8)};updates.Children.Add(updateProgress);
+            updateActivity=Text(host.Updates.Activity,12,color:Muted);updates.Children.Add(updateActivity);
+            updates.Children.Add(Text("下載完成後會開啟獨立更新視窗，繼續顯示解壓縮與元件更新進度。",11,color:Muted));
+            if(host.Updates.CanCancel)updates.Children.Add(Button("取消下載",host.Updates.CancelDownload));
+        }
         var toolkitActions=new WrapPanel();var check=Button("檢查更新",async()=>await host.Updates.Check(true));check.IsEnabled=!host.Updates.Busy;toolkitActions.Children.Add(check);
         toolkitActions.Children.Add(Button("安裝／加入 MCP",()=>setup(null,0)));toolkitActions.Children.Add(Button("查看發布版本 ↗",()=>Process.Start(new ProcessStartInfo("https://github.com/allen2123231/cad-toolkit/releases"){UseShellExecute=true})));updates.Children.Add(toolkitActions);
         if(host.Updates.Visible){
