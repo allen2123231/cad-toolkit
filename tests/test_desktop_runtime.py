@@ -67,7 +67,7 @@ class DesktopTests(unittest.TestCase):
         result = install_bundle(target, self.root / "appdata")
         bundle = Path(result["bundle"])
         xml = ET.parse(bundle / "PackageContents.xml").getroot()
-        self.assertEqual(xml.get("ProductCode"), PRODUCT)
+        self.assertEqual(xml.get("UpgradeCode"), PRODUCT)
         self.assertEqual(xml.find("Components/ComponentEntry").get("PerDocument"), "True")
         self.assertEqual((bundle / "Contents/mcp_dispatch.lsp").read_text(encoding="utf-8"), (target / "autocad/mcp_dispatch.lsp").read_text(encoding="utf-8"))
         install_bundle(target, self.root / "appdata")

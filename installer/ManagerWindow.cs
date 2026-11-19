@@ -90,11 +90,11 @@ public sealed class ManagerWindow : Window
     void Server(JsonElement row) {
         string kind=Get(row,"id"),code=Get(row,"code");
         var panel=new StackPanel();var title=new DockPanel();var status=Status(row);DockPanel.SetDock(status,Dock.Right);title.Children.Add(status);
-        var heading=new StackPanel{Orientation=Orientation.Horizontal};heading.Children.Add(NativeIcon(kind));var names=new StackPanel();names.Children.Add(Text(ExperienceState.Names.GetValueOrDefault(kind,kind),15,true));names.Children.Add(Text(Get(row,"cad_version",kind=="rhino"?"Rhino 8":""),11,color:Muted));heading.Children.Add(names);title.Children.Add(heading);panel.Children.Add(title);
+        var heading=new StackPanel{Orientation=Orientation.Horizontal};heading.Children.Add(NativeIcon(kind));var names=new StackPanel();names.Children.Add(Text(Get(row,"product",ExperienceState.Names.GetValueOrDefault(kind,kind)),15,true));names.Children.Add(Text(Get(row,"cad_version",kind=="rhino"?"Rhino 8":""),11,color:Muted));heading.Children.Add(names);title.Children.Add(heading);panel.Children.Add(title);
         var grid=new Grid{Margin=new Thickness(0,17,0,12)};grid.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});grid.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
         var left=new StackPanel();int windowCount=host.Windows.Count(w=>Get(w,"kind")==kind);left.Children.Add(Text(windowCount>0?"已開啟視窗":"目前文件",10,color:Muted));var file=new StackPanel{Orientation=Orientation.Horizontal};file.Children.Add(NativeIcon(kind,windowCount==0,17));file.Children.Add(Text(windowCount>0?windowCount+" 個獨立視窗":Document(row),12));left.Children.Add(file);left.Children.Add(Text("MCP 服務",10,color:Muted));left.Children.Add(Text(Get(row,"version") is string ver&&ver.Length>0?"已安裝 "+ver:ExperienceState.Flag(row,"installed")?"已安裝 · 版本待確認":"尚未安裝",12));
         var right=new StackPanel();right.Children.Add(Text("連線方式／端口",10,color:Muted));right.Children.Add(Text(Get(row,"endpoint","尚未確認"),12));right.Children.Add(Text("版本狀態",10,color:Muted));right.Children.Add(Text(VersionLabel(row),12));Grid.SetColumn(right,1);grid.Children.Add(left);grid.Children.Add(right);panel.Children.Add(grid);
-        var actions=new WrapPanel();actions.Children.Add(Button("開啟 "+ExperienceState.Names.GetValueOrDefault(kind,kind),()=>OpenCad(kind),true));actions.Children.Add(RecheckButton(kind));actions.Children.Add(Button(ExperienceState.Flag(row,"installed")?"設定／修復":"安裝 MCP",()=>setup(kind,ExperienceState.Flag(row,"installed")?4:3)));panel.Children.Add(actions);
+        var actions=new WrapPanel();actions.Children.Add(Button("開啟 "+Get(row,"product",ExperienceState.Names.GetValueOrDefault(kind,kind)),()=>OpenCad(kind),true));actions.Children.Add(RecheckButton(kind));actions.Children.Add(Button("選擇程式",()=>ChooseApplication(kind)));actions.Children.Add(Button(ExperienceState.Flag(row,"installed")?"設定／修復":"安裝 MCP",()=>setup(kind,ExperienceState.Flag(row,"installed")?4:3)));panel.Children.Add(actions);
         if(host.LastCheckedAt(kind) is DateTime checkedAt)panel.Children.Add(Text("上次檢查："+checkedAt.ToString("HH:mm:ss"),10,color:Muted));
         if(!ExperienceState.Flag(row,"managed"))panel.Children.Add(Text("既有 MCP 設定 · 可直接檢查；完成 Toolkit 安裝與啟用後會記錄最近指令。",11,color:Muted));
         if(kind=="rhino"){
@@ -117,6 +117,13 @@ public sealed class ManagerWindow : Window
         try{
             footer.Text=await host.OpenCad(kind);
         }catch(Exception ex){Error(ex);}
+    }
+    void ChooseApplication(string kind){
+        var dialog=new OpenFileDialog{Title=kind=="autocad"?"選擇 AutoCAD 或 AutoCAD LT 主程式":"選擇 "+ExperienceState.Names[kind]+" 主程式",Filter="軟體主程式 (*.exe)|*.exe",CheckFileExists=true};
+        if(dialog.ShowDialog(this)!=true)return;
+        if(!ExperienceState.ExecutableNames(kind).Contains(Path.GetFileName(dialog.FileName),StringComparer.OrdinalIgnoreCase)){Error(new InvalidOperationException("請選擇 "+string.Join(" 或 ",ExperienceState.ExecutableNames(kind))+"。"));return;}
+        try{var state=ExperienceState.Load(host.Root);state.Paths[kind]=dialog.FileName;state.Save(host.Root);footer.Text="已記住程式位置；按「開啟」即可使用，不需要輸入指令。";}
+        catch(Exception ex){Error(ex);}
     }
     void Installations() {
         Header("安裝與版本","採用經 Toolkit 測試的固定組合，各套軟體可獨立安裝。");

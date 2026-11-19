@@ -42,14 +42,18 @@ def find_codex():
 def processes(name):
     if os.name != "nt": return []
     import csv, io
-    output = run(["tasklist.exe", "/FO", "CSV", "/NH", "/FI", f"IMAGENAME eq {name}"])
+    names=('acad.exe','acadlt.exe') if name.casefold()=='acad.exe' else (name,)
+    output = run(["tasklist.exe", "/FO", "CSV", "/NH"])
     return [{"name": row[0], "pid": row[1]} for row in csv.reader(io.StringIO(output))
-            if len(row) > 1 and row[0].lower() == name.lower()]
+            if len(row) > 1 and row[0].casefold() in {n.casefold() for n in names}]
 
 def mcp_command(version_dir, component):
     version_dir = Path(version_dir)
     scripts = version_dir / "envs" / component / "Scripts"
     if component == "rhino": return [str(scripts / "rhinomcp.exe")]
+    if component == "autocad":
+        bootstrap=version_dir/'payload/engine/autocad_session.py'
+        if bootstrap.exists():return [str(scripts/'python.exe'),'-X','utf8',str(bootstrap)]
     if component == "inventor":
         bootstrap = version_dir / "payload/engine/inventor_session.py"
         if bootstrap.exists(): return [str(scripts / "python.exe"), "-X", "utf8", str(bootstrap)]
@@ -78,7 +82,7 @@ def plugin_files(destination, template, commands, version, env, history_root=Non
         if history_root:
             tools_dir = destination / "tools"
             tools_dir.mkdir(exist_ok=True)
-            for helper in ("relay.py", "history.py", "rhino_instances.py", "rhino_router.py", "window_store.py", "window_scan.py", "probe.py", "cad_launch.py"):
+            for helper in ("relay.py", "history.py", "rhino_instances.py", "rhino_router.py", "window_store.py", "window_scan.py", "probe.py", "cad_launch.py","cad_products.py"):
                 shutil.copy2(Path(__file__).with_name(helper), tools_dir / helper)
             python = Path(cmd[0]).with_name("python.exe")
             cmd = [str(python), "-X", "utf8", str(tools_dir / "relay.py"), "--root", str(history_root), "--component", name, "--", *cmd]
@@ -170,8 +174,12 @@ class Manager:
     def prepare_autocad(self,target):
         target=Path(target);lisp=target/'payload/cad/autocad/mcp_dispatch.lsp';cad_dir=target/'autocad'
         shutil.copytree(lisp.parent,cad_dir,dirs_exist_ok=True)
+        (self.root/'ipc').mkdir(parents=True,exist_ok=True)
         ipc=(self.root/'ipc').as_posix()+'/'
         text=lisp.read_text(encoding='utf-8').replace('(setq *mcp-ipc-dir* "C:/temp/")','(setq *mcp-ipc-dir* '+json.dumps(ipc,ensure_ascii=False)+')')
+        context=Path(__file__).with_name('autocad_context.lsp')
+        if context.is_file():
+            text+='\n'+context.read_text(encoding='utf-8')
         (cad_dir/'mcp_dispatch.lsp').write_text(text,encoding='utf-8')
         shutil.copytree(cad_dir,target/'envs/autocad/Lib/lisp-code',dirs_exist_ok=True)
 
@@ -444,7 +452,7 @@ class Manager:
                     if c == "autocad":
                         helper = Path(__file__).with_name("autocad_readonly.py")
                         python = Path(target) / "envs/autocad/Scripts/python.exe"
-                        before = json.loads(run([python, helper], timeout=20))
+                        before = json.loads(run([python, helper,'--root',self.root], timeout=20))
                         if before.get('document_missing'):
                             status['document_missing'] = True
                             status['message'] = 'AutoCAD 尚未開啟圖面'
@@ -456,7 +464,7 @@ class Manager:
                             raise RuntimeError("尚未連接 file_ipc")
                         document = client.call("drawing", {"operation": "info"})
                         if isinstance(document, dict) and document.get("ok") is False: raise RuntimeError(str(document))
-                        after = json.loads(run([python, helper], timeout=20))
+                        after = json.loads(run([python, helper,'--root',self.root], timeout=20))
                         if before != after: raise RuntimeError("AutoCAD 文件狀態在診斷期間改變，請重新確認目標")
                         status["document"] = {"identity": after, "drawing_info": document}
                     elif c == "rhino":

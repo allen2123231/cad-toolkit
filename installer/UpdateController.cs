@@ -92,7 +92,7 @@ public sealed class UpdateController : IDisposable {
         return selected.Where(ExperienceState.Names.ContainsKey).Order().ToArray();
     }
     public static string? CloseApplications(string[] selected){
-        var names=new List<string>();foreach(string kind in selected){var processes=Process.GetProcessesByName(kind=="rhino"?"Rhino":kind=="autocad"?"acad":"Inventor");if(processes.Length>0)names.Add(ExperienceState.Names[kind]);foreach(var p in processes)p.Dispose();}
+        var names=new List<string>();foreach(string kind in selected){var processes=ExperienceState.ProcessNames(kind).SelectMany(Process.GetProcessesByName).ToArray();if(processes.Length>0)names.Add(kind=="autocad"?"AutoCAD／AutoCAD LT":ExperienceState.Names[kind]);foreach(var p in processes)p.Dispose();}
         return names.Count==0?null:"請先儲存並關閉 "+string.Join("、",names)+"，再按更新。CAD 文件不會自動關閉。";
     }
     public async Task Apply(){

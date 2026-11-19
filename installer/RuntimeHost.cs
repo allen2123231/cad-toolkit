@@ -70,7 +70,7 @@ public sealed class RuntimeHost : IDisposable
         else{
             var frames=Windows.Where(w=>ExperienceState.Text(w,"kind")==kind).ToArray();
             if(frames.Length==0){
-                var processes=Process.GetProcessesByName(kind=="rhino"?"Rhino":kind=="autocad"?"acad":"Inventor");bool background=processes.Length>0;foreach(var process in processes)process.Dispose();liveCode=background?"BACKGROUND_ONLY":"CAD_NOT_RUNNING";
+                var processes=ExperienceState.ProcessNames(kind).SelectMany(Process.GetProcessesByName).ToArray();bool background=processes.Length>0;foreach(var process in processes)process.Dispose();liveCode=background?"BACKGROUND_ONLY":"CAD_NOT_RUNNING";
             }
             else if(code=="READY"){
                 var verified=row.TryGetProperty("verified_windows",out var proof)&&proof.ValueKind==JsonValueKind.Array?proof.EnumerateArray().Select(FrameKey).ToHashSet():new HashSet<string>();

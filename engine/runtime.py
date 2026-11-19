@@ -17,6 +17,7 @@ import window_scan
 from common import read_json, atomic_json
 from probe import Client
 from component_state import prepared_targets
+from cad_products import EXECUTABLES
 
 NAMES = {"rhino": "Rhino", "autocad": "AutoCAD", "inventor": "Inventor"}
 PROCESSES = {"rhino": "Rhino.exe", "autocad": "acad.exe", "inventor": "Inventor.exe"}
@@ -36,7 +37,7 @@ def running_processes():
     result = subprocess.run(["tasklist.exe", "/FO", "CSV", "/NH"], capture_output=True, text=True,
                             encoding="utf-8", errors="replace", creationflags=flags, timeout=8)
     return {kind: [int(row[1]) for row in csv.reader(result.stdout.splitlines())
-                   if len(row) > 1 and row[0].lower() == exe.lower()] for kind, exe in PROCESSES.items()}
+                   if len(row) > 1 and row[0].casefold() in {n.casefold() for n in EXECUTABLES[kind]}] for kind in PROCESSES}
 
 
 def discover(root, config):
@@ -60,6 +61,8 @@ def discover(root, config):
             enabled = kind in state.get('active',{}) and policy.get("enabled", True) and policy.get("mcp_servers", {}).get(kind, {}).get("enabled", False)
             scripts = Path(target) / "envs" / kind / "Scripts"
             command = [str(scripts / "rhinomcp.exe")] if kind == "rhino" else [str(scripts / "python.exe"), "-X", "utf8", "-m", "autocad_mcp" if kind == "autocad" else "src.server"]
+            bootstrap=Path(target)/'payload/engine/autocad_session.py'
+            if kind=='autocad' and bootstrap.is_file():command=[str(scripts/'python.exe'),'-X','utf8',str(bootstrap)]
             sources[kind] = {"command": command, "python": str(scripts / "python.exe"), "target": target,
                              "managed": True, "enabled": enabled and not pending, "pending": pending, "env": {"AUTOCAD_MCP_IPC_DIR": str(Path(root) / "ipc")}}
             continue
@@ -106,7 +109,7 @@ def probe(source, kind, root, port=None):
         if status.get("payload", status).get("backend") != "file_ipc":
             raise RuntimeError("AutoCAD 未連接實機橋接")
         client.call("drawing", {"operation": "info"})
-        return {"code": "READY"}
+        return {"code": "READY","bridge_hwnd":status.get('payload',status).get('hwnd')}
 
 
 def native(source, kind):
@@ -171,10 +174,16 @@ def row(kind, source, pids, root, manifest, choices, frames=None):
             to_version = tuple(int(x) for x in info["expected_version"].split(".") if x.isdigit())
             info["update"] = "compatible" if info["version"] == info["expected_version"] else "available" if from_version < to_version else "different"
         if not pids:
+            if kind=='autocad':
+                from cad_launch import executable
+                from cad_products import product_for_executable
+                path=executable(root,kind)
+                if path:info['product']=product_for_executable(path);info['name']=info['product'] or info['name']
             info["code"] = "LICENSING_ERROR" if licensing_error(root, kind) else "CAD_NOT_RUNNING"
             return info
         frames = window_scan.scan() if frames is None else frames
         visible = [w for w in frames if w["kind"]==kind and w["pid"] in pids and w.get("visible",True)]
+        if kind=='autocad' and len(visible)==1 and visible[0].get('product'):info['product']=visible[0]['product'];info['name']=info['product']
         if not visible:
             info["code"] = "BACKGROUND_ONLY"
             info["message"] = "只有背景程序，尚無可見的主視窗；按「開啟 "+NAMES[kind]+"」可顯示視窗。"
@@ -198,7 +207,11 @@ def row(kind, source, pids, root, manifest, choices, frames=None):
             if len(pids) != 1:
                 info["code"] = "SELECT_TARGET"
                 return info
-            app = native(source, kind)
+            if kind=='autocad' and visible[0].get('product')=='AutoCAD LT':
+                from autocad_context import read_context
+                app=read_context(root,visible[0])
+                info['name']='AutoCAD LT';info['product']='AutoCAD LT'
+            else:app = native(source, kind)
             matched = [w for w in visible if w["hwnd"]==app.get("hwnd")]
             if not matched:
                 info["code"]="TARGET_MISMATCH"
@@ -216,6 +229,8 @@ def row(kind, source, pids, root, manifest, choices, frames=None):
                 info["code"] = "NOT_ENABLED"
             else:
                 info.update(probe(source, kind, root))
+                if app.get('product')=='AutoCAD LT' and info.get('code')=='READY' and info.get('bridge_hwnd')!=app['hwnd']:
+                    info['code']='TARGET_MISMATCH';info['message']='AutoCAD LT 橋接視窗身分不符，已停止連線。'
         if not source.get("enabled") and info["code"] == "READY":
             info["code"] = "NOT_ENABLED"
     except Exception as exc:

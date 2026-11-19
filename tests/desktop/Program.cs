@@ -64,6 +64,14 @@ class DesktopChecks
         }
         string output=Path.GetFullPath(args.Length>0?args[0]:"test-results/desktop");Directory.CreateDirectory(output);var app=new Application{ShutdownMode=ShutdownMode.OnExplicitShutdown};
         app.Startup+=async(_,_)=>{try{
+            if(args.Contains("--repro-lt-ui")){
+                using var ltHost=new RuntimeHost(Path.Combine(output,"lt-root"),[],false);
+                typeof(RuntimeHost).GetProperty("Snapshot")!.SetValue(ltHost,JsonDocument.Parse("""{"rows":[{"id":"autocad","product":"AutoCAD LT","installed":true,"managed":true,"version":"3.2.0","code":"CAD_NOT_RUNNING","update":"compatible"}],"history":[]}""").RootElement.Clone());
+                ltHost.ApplyWindowSnapshot(JsonDocument.Parse("""{"windows":[],"requests":[],"confirmations":[]}""").RootElement);
+                var ltView=new ManagerWindow(ltHost,(_,_)=>{});ltView.Show();ltView.UpdateLayout();
+                Assert(Find<TextBlock>(ltView).Any(t=>t.Text=="AutoCAD LT"),"LT product name is shown");Assert(Find<Button>(ltView).Any(b=>b.Content?.ToString()=="開啟 AutoCAD LT"),"LT launch has the correct product name");Assert(Find<Button>(ltView).Any(b=>b.Content?.ToString()=="選擇程式"),"Nondefault installation has a button-driven path selection");
+                Capture(ltView,Path.Combine(output,"autocad-lt-144.png"),144);ltView.Close();Console.WriteLine("LT interface checks passed: "+count);app.Shutdown(0);return;
+            }
             if(args.Contains("--repro-update-responsive")){
                 string root=Path.Combine(output,"update-root");Directory.CreateDirectory(root);File.WriteAllText(Path.Combine(root,"state.json"),"""{"active":{"rhino":"fixture"}}""");
                 using var client=new HttpClient(new HeldDownload());using var updateHost=new RuntimeHost(root,[],false,updateClient:client);
@@ -172,6 +180,7 @@ class DesktopChecks
             Assert(Find<TextBlock>(install).Any(t=>t.Text=="安裝一次，開啟軟體就能連線"),"New installer entry point");
             Assert(!Find<TextBlock>(install).Any(t=>t.Text.Contains("首次設定 ·")||t.Text.Contains("1 / 8")),"Old wizard is not presented");
             Assert(Find<CheckBox>(install).Count()==3,"Three independently selectable MCPs");
+            Assert(ExperienceState.ExecutableNames("autocad").SequenceEqual(new[]{"acad.exe","acadlt.exe"}),"AutoCAD and LT are included in detection and update process guards");
             var installPath=Find<TextBox>(install).First(t=>!t.IsReadOnly);installPath.Text=@"C:\Users\Demo\AppData\Local\McpToolkit";
             Capture(install,Path.Combine(output,"install-selection-144.png"),144);install.Close();
             var popup=new TrayPanel(host,_=>{});popup.ShowActivated=false;popup.Show();popup.UpdateLayout();

@@ -102,6 +102,7 @@ def run(root, component, command, cwd=None, env=None):
                         result["tools"].extend(application_tools())
                         line = (json.dumps(message,ensure_ascii=True)+"\n").encode("utf-8")
                     elif "serverInfo" in result:
+                        if component=='autocad':result['instructions']=result.get('instructions','')+'\nThis Toolkit server supports AutoCAD and AutoCAD LT. Check application state and product first. AutoCAD LT supports 2D drafting through the LISP/file-IPC bridge; never promise full AutoCAD 3D solid, surface, .NET or external COM capabilities in LT. If multiple AutoCAD/LT instances are open, stop and request one unambiguous target. Do not ask the user to type connection commands.'
                         result["instructions"] = result.get("instructions","")+"\nBefore CAD operations, use open_application and get_application_state to obtain a visible main window. Never launch CAD with hidden shell flags, and never start a second process while the first is starting. A process alone is not readiness. Check the MCP bridge after the window opens. Do not ask the user for APPLOAD or manual connection commands; use Toolkit's installation/repair flow when necessary."
                         line = (json.dumps(message,ensure_ascii=True)+"\n").encode("utf-8")
                 if "id" in message:

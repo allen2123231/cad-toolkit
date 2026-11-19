@@ -8,6 +8,7 @@ import re
 
 from rhino_instances import collect, process_start
 from window_store import Store
+from cad_products import kind_for_executable,product_for_executable
 
 
 def api():
@@ -64,15 +65,15 @@ def scan(include_hidden=False):
             path = ctypes.create_unicode_buffer(32768); size = W.DWORD(len(path))
             try:
                 found = handle and k.QueryFullProcessImageNameW(handle, 0, path, ctypes.byref(size))
-                kind = {"rhino.exe": "rhino", "acad.exe": "autocad", "inventor.exe": "inventor"}.get(Path(path.value).name.lower()) if found else None
-                cache[pid.value] = (kind, process_start(pid.value) if kind else None)
+                kind = kind_for_executable(path.value) if found else None
+                cache[pid.value] = (kind, process_start(pid.value) if kind else None,path.value if found else '')
             finally:
                 if handle: k.CloseHandle(handle)
-        kind, start = cache[pid.value]
+        kind, start, executable = cache[pid.value]
         # CAD frames have native Rhino/Afx classes. Exclude floating tool palettes,
         # splash windows and dialogs; document MDI children are never enumerated.
         if kind and start is not None and (kind == "rhino" or main_frame(kind, cls.value)):
-            result.append({"kind": kind, "pid": pid.value, "processStart": start, "hwnd": int(hwnd), "title": title, "class": cls.value, "visible": bool(u.IsWindowVisible(hwnd))})
+            result.append({"kind": kind, "pid": pid.value, "processStart": start, "hwnd": int(hwnd), "title": title, "class": cls.value, "visible": bool(u.IsWindowVisible(hwnd)),"executable":executable,"product":product_for_executable(executable)})
         return True
 
     callback = callback_type(visit)

@@ -68,7 +68,7 @@ public sealed class ExperienceState
         }catch{return null;}
     }
     public static string? Detect(string id) {
-        string exe = id switch { "autocad"=>"acad.exe", "inventor"=>"Inventor.exe", _=>"Rhino.exe" };
+        foreach(string exe in ExecutableNames(id)){
         foreach(var process in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(exe))) {
             using(process) { try { if(process.MainModule?.FileName is string p) return p; } catch { } }
         }
@@ -76,12 +76,15 @@ public sealed class ExperienceState
             using var key = hive.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\" + exe);
             if(key?.GetValue(null) is string path && File.Exists(path.Trim('"'))) return path.Trim('"');
         }
+        }
         string program = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
         var candidates = id switch {
-            "autocad" => Enumerable.Range(2022, 8).Reverse().Select(v => Path.Combine(program, $"Autodesk/AutoCAD {v}/acad.exe")),
+            "autocad" => Enumerable.Range(2022, 8).Reverse().SelectMany(v => new[]{Path.Combine(program,$"Autodesk/AutoCAD {v}/acad.exe"),Path.Combine(program,$"Autodesk/AutoCAD LT {v}/acadlt.exe")}.Where(p=>v>=2024||!p.EndsWith("acadlt.exe",StringComparison.OrdinalIgnoreCase))),
             "inventor" => Enumerable.Range(2022, 8).Reverse().Select(v => Path.Combine(program, $"Autodesk/Inventor {v}/Bin/Inventor.exe")),
             _ => new[] { Path.Combine(program, "Rhino 8/System/Rhino.exe") }.AsEnumerable()
         };
         return candidates.FirstOrDefault(File.Exists);
     }
+    public static string[] ExecutableNames(string id)=>id switch{"autocad"=>["acad.exe","acadlt.exe"],"inventor"=>["Inventor.exe"],_=>["Rhino.exe"]};
+    public static string[] ProcessNames(string id)=>ExecutableNames(id).Select(p=>Path.GetFileNameWithoutExtension(p)).ToArray();
 }
