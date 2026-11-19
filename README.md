@@ -8,7 +8,7 @@ Windows 右下角的 MCP 管理程式，整合 **Rhino、AutoCAD、Inventor**。
 
 **Windows 相容性：本 Beta 尚未簽章，開啟 Smart App Control 的電腦可能無法安裝或載入部分元件。正式簽章與 SAC 實機驗收尚未完成。** [簽章盤點與後續處理](docs/windows-signing.md)
 
-**[下載已發布 Windows 預覽版](https://github.com/allen2123231/cad-toolkit/releases/tag/v0.5.0-beta.4)** · **[第一次使用](docs/getting-started.md)** · **[驗證範圍](docs/validation.md)**
+**[下載已發布 Windows 預覽版](https://github.com/allen2123231/cad-toolkit/releases/tag/v0.5.0-beta.5)** · **[第一次使用](docs/getting-started.md)** · **[驗證範圍](docs/validation.md)**
 
 <img src="docs/images/mcp-install.png" width="620" alt="MCP Toolkit 新安裝介面，實際 WPF 渲染，示範資料">
 
