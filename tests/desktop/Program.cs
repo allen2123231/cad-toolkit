@@ -64,6 +64,45 @@ class DesktopChecks
         }
         string output=Path.GetFullPath(args.Length>0?args[0]:"test-results/desktop");Directory.CreateDirectory(output);var app=new Application{ShutdownMode=ShutdownMode.OnExplicitShutdown};
         app.Startup+=async(_,_)=>{try{
+            if(args.Contains("--repro-mcp-management")){
+                using var catalogHost=new RuntimeHost(Path.Combine(output,"catalog-root"),[],false);
+                typeof(RuntimeHost).GetProperty("Snapshot")!.SetValue(catalogHost,JsonDocument.Parse("""{"rows":[{"id":"rhino","installed":true,"managed":true,"version":"0.5.3","code":"CAD_NOT_RUNNING","update":"compatible"},{"id":"autocad","installed":false,"code":"NOT_INSTALLED"},{"id":"inventor","installed":true,"managed":true,"version":"0.1.0","code":"CAD_NOT_RUNNING","update":"compatible"}],"history":[]}""").RootElement.Clone());
+                catalogHost.ApplyWindowSnapshot(JsonDocument.Parse("""{"windows":[],"requests":[],"confirmations":[]}""").RootElement);
+                typeof(UpdateController).GetProperty("Available")!.SetValue(catalogHost.Updates,JsonDocument.Parse("""{"version":"0.5.0-beta.7","beta":true,"notes":"# MCP Toolkit 更新\n\n## 修正\n\n- **保留設定**，支援 `acadlt.exe`。\n- [發布頁](https://github.com/allen2123231/cad-toolkit/releases)\n\n```text\nC:/Toolkit\n```"}""").RootElement.Clone());
+                string? requestedComponent=null;int? requestedStep=null;var view=new ManagerWindow(catalogHost,(kind,step)=>{requestedComponent=kind;requestedStep=step;});view.Show();view.UpdateLayout();var failures=new List<string>();
+                if(Find<TextBlock>(view).Any(t=>t.Text=="AutoCAD"))failures.Add("Status includes uninstalled AutoCAD");
+                var tray=new TrayPanel(catalogHost,_=>{});tray.Show();tray.UpdateLayout();if(Find<TextBlock>(tray).Any(t=>t.Text=="AutoCAD"))failures.Add("Tray includes uninstalled AutoCAD");tray.Close();
+                view.Navigate("install");view.UpdateLayout();if(Find<TextBlock>(view).Any(t=>t.Text=="Rhino"))failures.Add("Update page still includes per-MCP installation cards");
+                if(Find<TextBlock>(view).Any(t=>t.Text.Contains("## 修正")||t.Text.Contains("**保留設定**")))failures.Add("Release notes expose raw Markdown");
+                var notes=Find<System.Windows.Controls.FlowDocumentScrollViewer>(view).SingleOrDefault();
+                if(notes==null)failures.Add("No native Markdown document");else{
+                    var text=new System.Windows.Documents.TextRange(notes.Document.ContentStart,notes.Document.ContentEnd).Text;
+                    if(text.Contains("##")||text.Contains("**")||text.Contains("`acadlt.exe`"))failures.Add("Markdown punctuation remains visible");
+                    if(!notes.Document.Blocks.OfType<System.Windows.Documents.List>().Any())failures.Add("Bullet list not rendered");
+                }
+                if(!Find<TextBlock>(view).Any(t=>t.Text=="設定與更新"))failures.Add("Settings and updates are not combined");
+                Capture(view,Path.Combine(output,"settings-updates-144.png"),144);
+                view.Navigate("overview");Capture(view,Path.Combine(output,"installed-status-144.png"),144);
+                view.Navigate("mcps");view.UpdateLayout();
+                if(!Find<Button>(view).Any(b=>b.Content?.ToString()=="未安裝（1）"))failures.Add("MCP management has no installed/uninstalled categories");
+                if(Find<TextBlock>(view).Any(t=>t.Text=="AutoCAD"))failures.Add("Installed category includes an uninstalled MCP");
+                Capture(view,Path.Combine(output,"mcps-installed-144.png"),144);
+                var uninstalled=Find<Button>(view).Single(b=>b.Content?.ToString()=="未安裝（1）");uninstalled.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));view.UpdateLayout();
+                if(!Find<TextBlock>(view).Any(t=>t.Text=="AutoCAD")||Find<TextBlock>(view).Any(t=>t.Text=="Rhino"||t.Text=="Inventor"))failures.Add("Uninstalled category is incorrect");
+                if(!Find<Button>(view).Any(b=>b.Content?.ToString()=="安裝 AutoCAD MCP"))failures.Add("Uninstalled MCP lacks its install action");
+                Capture(view,Path.Combine(output,"mcps-uninstalled-144.png"),144);
+                Find<Button>(view).Single(b=>b.Content?.ToString()=="安裝 AutoCAD MCP").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if(requestedComponent!="autocad"||requestedStep!=3)failures.Add("Install action targets the wrong MCP");
+                var future=JsonDocument.Parse("""{"components":{"rhino":{},"autocad":{},"inventor":{},"sketchup":{"display_name":"SketchUp","package_version":"1.0"}}}""").RootElement;
+                if(!McpCatalog.Entries(future,catalogHost.Rows).Any(c=>c.Id=="sketchup"&&c.Name=="SketchUp"&&!c.Installed))failures.Add("Catalog is hardcoded to three MCPs");
+                var unsafeNotes=MarkdownNotes.Document("[unsafe](javascript:alert(1)) ![remote](https://example.invalid/image.png)\n\n| A | B |\n|---|---|\n| 1 | 2 |");
+                if(!unsafeNotes.Blocks.OfType<System.Windows.Documents.Table>().Any())failures.Add("Markdown table not rendered");
+                foreach(var paragraph in unsafeNotes.Blocks.OfType<System.Windows.Documents.Paragraph>())if(paragraph.Inlines.OfType<System.Windows.Documents.Hyperlink>().Any())failures.Add("Unsafe URL is clickable");
+                typeof(RuntimeHost).GetProperty("Snapshot")!.SetValue(catalogHost,JsonDocument.Parse("""{"rows":[{"id":"rhino","installed":false},{"id":"autocad","installed":false},{"id":"inventor","installed":false}],"history":[]}""").RootElement.Clone());
+                view.Navigate("overview");view.UpdateLayout();if(!Find<TextBlock>(view).Any(t=>t.Text=="尚未安裝 MCP"))failures.Add("Zero installed MCPs have no empty state");
+                if(Find<TextBlock>(view).Any(t=>t.Text=="Rhino"||t.Text=="AutoCAD"||t.Text=="Inventor"))failures.Add("Empty status shows uninstalled MCPs");
+                view.Close();if(failures.Count>0)throw new Exception(string.Join("; ",failures));Console.WriteLine("MCP management and Markdown checks passed");app.Shutdown(0);return;
+            }
             if(args.Contains("--repro-lt-ui")){
                 using var ltHost=new RuntimeHost(Path.Combine(output,"lt-root"),[],false);
                 typeof(RuntimeHost).GetProperty("Snapshot")!.SetValue(ltHost,JsonDocument.Parse("""{"rows":[{"id":"autocad","product":"AutoCAD LT","installed":true,"managed":true,"version":"3.2.0","code":"CAD_NOT_RUNNING","update":"compatible"}],"history":[]}""").RootElement.Clone());

@@ -26,9 +26,9 @@ public sealed class ToolkitApplication : IDisposable
         activate=new EventWaitHandle(false,EventResetMode.AutoReset,signal);
         waiter=ThreadPool.RegisterWaitForSingleObject(activate,(_,_)=>app.Dispatcher.BeginInvoke(()=>{if(installer)ShowSetup(null,null);else ShowManager("overview");}),null,Timeout.Infinite,false);
         tray=new System.Windows.Forms.NotifyIcon{Text="MCP Toolkit · 正在檢查",Icon=ToolkitVisuals.TrayIcon(false),Visible=!installer};
-        var menu=new System.Windows.Forms.ContextMenuStrip();menu.Items.Add("MCP 狀態",null,(_,_)=>TogglePopup());menu.Items.Add("完整管理",null,(_,_)=>ShowManager("overview"));menu.Items.Add("安裝與版本",null,(_,_)=>ShowManager("install"));menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());menu.Items.Add("結束 MCP Toolkit",null,(_,_)=>Exit());tray.ContextMenuStrip=menu;
+        var menu=new System.Windows.Forms.ContextMenuStrip();menu.Items.Add("MCP 狀態",null,(_,_)=>TogglePopup());menu.Items.Add("MCP 管理",null,(_,_)=>ShowManager("mcps"));menu.Items.Add("完整管理",null,(_,_)=>ShowManager("overview"));menu.Items.Add("設定與更新",null,(_,_)=>ShowManager("settings"));menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());menu.Items.Add("結束 MCP Toolkit",null,(_,_)=>Exit());tray.ContextMenuStrip=menu;
         tray.MouseClick+=(_,e)=>{if(e.Button==System.Windows.Forms.MouseButtons.Left)TogglePopup();};tray.DoubleClick+=(_,_)=>ShowManager("overview");
-        tray.BalloonTipClicked+=(_,_)=>ShowManager("install");
+        tray.BalloonTipClicked+=(_,_)=>ShowManager("settings");
         host.Updates.Notify+=version=>app.Dispatcher.BeginInvoke(()=>{tray.BalloonTipTitle="MCP Toolkit 有新版本";tray.BalloonTipText=version+" 已推出，點此查看內容並更新。";tray.ShowBalloonTip(8000);});
         host.Changed+=()=>{var old=tray.Icon;tray.Icon=ToolkitVisuals.TrayIcon(host.Connected);old?.Dispose();tray.Text="MCP Toolkit · "+host.Rows.Count(r=>ExperienceState.Text(r,"code")=="READY")+" 套可以使用";};
         host.WindowsChanged+=()=>{

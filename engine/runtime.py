@@ -349,5 +349,5 @@ if __name__ == "__main__":
     except Exception:
         import traceback
         traceback.print_exc(file=sys.stderr)
-        print(json.dumps({"error": "無法完成這次要求，請重新檢查視窗或到「安裝與版本」修復元件。"}, ensure_ascii=True))
+        print(json.dumps({"error": "無法完成這次要求，請重新檢查視窗或到「MCP 管理」修復元件。"}, ensure_ascii=True))
         sys.exit(1)

@@ -12,7 +12,7 @@
     <Product>MCP Toolkit</Product>
     <Company>allen2123231</Company>
     <Description>MCP Toolkit for Rhino, AutoCAD and Inventor</Description>
-    <Version>0.5.0-beta.5</Version>
+    <Version>0.5.0-beta.6</Version>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -21,5 +21,7 @@
     <PublishTrimmed>false</PublishTrimmed>
     <DebugType>none</DebugType>
   </PropertyGroup>
+  <ItemGroup><PackageReference Include="Markdig" Version="1.6.0" /></ItemGroup>
+  <ItemGroup><EmbeddedResource Include="../docs/third-party/Markdig-LICENSE.txt" LogicalName="CadToolkitSetup.Markdig-LICENSE.txt" /></ItemGroup>
   <ItemGroup><EmbeddedResource Include="release.json" /><EmbeddedResource Include="assets/mcp-toolkit.ico" LogicalName="CadToolkitSetup.brand.ico" /><EmbeddedResource Include="assets/lucide-LICENSE.txt" /><EmbeddedResource Include="assets/icons/*.png" LogicalName="CadToolkitSetup.icons.%(Filename)%(Extension)" /><EmbeddedResource Include="../engine/*.py" LogicalName="CadToolkitSetup.engine.%(Filename)%(Extension)" /><EmbeddedResource Include="../sources.json" LogicalName="CadToolkitSetup.sources.json" /></ItemGroup>
 </Project>

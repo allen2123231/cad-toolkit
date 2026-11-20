@@ -52,6 +52,7 @@ public static class ToolkitVisuals
     public static Image NativeIcon(string kind,bool file=false,double size=26) {
         string name=kind+ (file?"-file":"-app")+".png";
         using var stream=Assembly.GetExecutingAssembly().GetManifestResourceStream("CadToolkitSetup.icons."+name);
+        if(stream==null){var fallback=(Image)Logo(size);fallback.Margin=new Thickness(0,0,11,0);return fallback;}
         var bitmap=new BitmapImage();if(stream!=null){bitmap.BeginInit();bitmap.CacheOption=BitmapCacheOption.OnLoad;bitmap.StreamSource=stream;bitmap.EndInit();bitmap.Freeze();}
         return new Image{Source=bitmap,Width=size,Height=size,Stretch=Stretch.Uniform,Margin=new Thickness(0,0,11,0)};
     }

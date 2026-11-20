@@ -17,6 +17,7 @@ public sealed class ManagerWindow : Window
     readonly StackPanel body=new(),nav=new();
     readonly TextBlock footer=Text("",11,color:Muted);
     string page="overview";
+    bool installedCategory=true;
     TextBlock? updateMessage,updateActivity;
     ProgressBar? updateProgress;
     bool renderedBusy,renderedVisible,renderedCancelable;
@@ -37,37 +38,39 @@ public sealed class ManagerWindow : Window
         var workspace=new DockPanel();Grid.SetColumn(workspace,1);shell.Children.Add(workspace);
         footer.Margin=new Thickness(30,10,30,14);DockPanel.SetDock(footer,Dock.Bottom);workspace.Children.Add(footer);
         workspace.Children.Add(new ScrollViewer{Content=body,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Padding=new Thickness(30,25,30,25)});
-        host.Changed+=Render;host.Updates.Changed+=UpdateFeedback;
+        host.Changed+=HostChanged;host.Updates.Changed+=UpdateFeedback;
         updateClock.Tick+=(_,_)=>{if(updateActivity!=null&&host.Updates.Applying)updateActivity.Text=host.Updates.Activity;};updateClock.Start();
-        Closed+=(_,_)=>{host.Changed-=Render;host.Updates.Changed-=UpdateFeedback;updateClock.Stop();};Render();
+        Closed+=(_,_)=>{host.Changed-=HostChanged;host.Updates.Changed-=UpdateFeedback;updateClock.Stop();};Render();
     }
+    void HostChanged(){if(page=="settings")footer.Text=host.Message;else Render();}
     void UpdateFeedback(){
         if(!Dispatcher.CheckAccess()){Dispatcher.BeginInvoke(UpdateFeedback);return;}
-        if(page!="install")return;
+        if(page!="settings")return;
         if(renderedBusy!=host.Updates.Busy||renderedVisible!=host.Updates.Visible||renderedVersion!=host.Updates.Version||renderedCancelable!=host.Updates.CanCancel){Render();return;}
         if(updateMessage!=null)updateMessage.Text=host.Updates.Message;
         if(updateActivity!=null)updateActivity.Text=host.Updates.Activity;
         if(updateProgress!=null){updateProgress.IsIndeterminate=!host.Updates.Percent.HasValue;updateProgress.Value=host.Updates.Percent??0;}
     }
-    public void Navigate(string target){page=target;Render();}
+    public void Navigate(string target){page=target=="install"?"settings":target;Render();}
     void Header(string title,string subtitle) {body.Children.Add(Text(title,27,true));body.Children.Add(Text(subtitle,12,color:Muted));}
     StackPanel Card(string title,string? description=null) {
-        var panel=new StackPanel();panel.Children.Add(Text(title,16,true));if(description!=null)panel.Children.Add(Text(description,12,color:Muted));
+        var panel=new StackPanel();if(title.Length>0)panel.Children.Add(Text(title,16,true));if(description!=null)panel.Children.Add(Text(description,12,color:Muted));
         body.Children.Add(new Border{Child=panel,BorderBrush=Line,BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(7),Padding=new Thickness(18),Margin=new Thickness(0,14,0,0)});return panel;
     }
     void Render() {
         updateMessage=null;updateActivity=null;updateProgress=null;renderedBusy=host.Updates.Busy;renderedVisible=host.Updates.Visible;renderedVersion=host.Updates.Version;renderedCancelable=host.Updates.CanCancel;
         body.Children.Clear();nav.Children.Clear();footer.Text=host.Message;
-        foreach(var item in new[]{("overview","MCP 狀態"),("history","最近指令"),("install","安裝與版本"),("settings","設定")}){
+        foreach(var item in new[]{("overview","MCP 狀態"),("mcps","MCP 管理"),("history","最近指令"),("settings","設定與更新")}){
             string target=item.Item1;var button=Button(item.Item2,()=>Navigate(target));button.HorizontalContentAlignment=HorizontalAlignment.Left;button.Padding=new Thickness(14,11,14,11);button.Margin=new Thickness(0,3,0,3);button.BorderThickness=new Thickness(0);button.Background=page==target?Color("#E3ECFF"):Brushes.Transparent;button.Foreground=page==target?Blue:Muted;nav.Children.Add(button);
         }
         if(page=="history"){Header("最近指令","只保存在這台電腦，保留最近 7 天；不記錄指令參數、提示詞或結果內容。");History(body,host);return;}
-        if(page=="install"){Installations();return;}
+        if(page=="mcps"){McpManagement();return;}
         if(page=="settings"){Settings();return;}
         Header("MCP 狀態","開啟軟體後自動檢查連線；日常使用不需要輸入啟動指令。");
-        var actions=new WrapPanel{Margin=new Thickness(0,12,0,0)};actions.Children.Add(RecheckButton());actions.Children.Add(Button("安裝／加入 MCP",()=>setup(null,1),true));body.Children.Add(actions);
-        if(!host.Rows.Any()){var empty=Card("先完成首次安裝",host.Message);empty.Children.Add(Button("開始設定",()=>setup(null,0),true));}
-        foreach(var row in host.Rows)Server(row);
+        var actions=new WrapPanel{Margin=new Thickness(0,12,0,0)};actions.Children.Add(RecheckButton());actions.Children.Add(Button("管理 MCP",()=>Navigate("mcps")));body.Children.Add(actions);
+        var installed=host.InstalledRows.ToArray();
+        if(installed.Length==0){var empty=Card(host.IsChecking?"正在檢查已安裝的 MCP":"尚未安裝 MCP","到「MCP 管理」選擇要安裝的元件；已安裝但未開啟軟體的項目也會顯示在這裡。");empty.Children.Add(Button("前往 MCP 管理",()=>Navigate("mcps"),true));}
+        foreach(var row in installed)Server(row);
         var note=Text("關閉管理視窗後仍會在右下角監控。只有「可以使用」代表目前的連線已通過檢查。",11,color:Muted);note.Margin=new Thickness(0,20,0,0);body.Children.Add(note);
     }
     static string Get(JsonElement r,string key,string fallback="")=>ExperienceState.Text(r,key,fallback);
@@ -94,7 +97,10 @@ public sealed class ManagerWindow : Window
         var grid=new Grid{Margin=new Thickness(0,17,0,12)};grid.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});grid.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
         var left=new StackPanel();int windowCount=host.Windows.Count(w=>Get(w,"kind")==kind);left.Children.Add(Text(windowCount>0?"已開啟視窗":"目前文件",10,color:Muted));var file=new StackPanel{Orientation=Orientation.Horizontal};file.Children.Add(NativeIcon(kind,windowCount==0,17));file.Children.Add(Text(windowCount>0?windowCount+" 個獨立視窗":Document(row),12));left.Children.Add(file);left.Children.Add(Text("MCP 服務",10,color:Muted));left.Children.Add(Text(Get(row,"version") is string ver&&ver.Length>0?"已安裝 "+ver:ExperienceState.Flag(row,"installed")?"已安裝 · 版本待確認":"尚未安裝",12));
         var right=new StackPanel();right.Children.Add(Text("連線方式／端口",10,color:Muted));right.Children.Add(Text(Get(row,"endpoint","尚未確認"),12));right.Children.Add(Text("版本狀態",10,color:Muted));right.Children.Add(Text(VersionLabel(row),12));Grid.SetColumn(right,1);grid.Children.Add(left);grid.Children.Add(right);panel.Children.Add(grid);
-        var actions=new WrapPanel();actions.Children.Add(Button("開啟 "+Get(row,"product",ExperienceState.Names.GetValueOrDefault(kind,kind)),()=>OpenCad(kind),true));actions.Children.Add(RecheckButton(kind));actions.Children.Add(Button("選擇程式",()=>ChooseApplication(kind)));actions.Children.Add(Button(ExperienceState.Flag(row,"installed")?"設定／修復":"安裝 MCP",()=>setup(kind,ExperienceState.Flag(row,"installed")?4:3)));panel.Children.Add(actions);
+        var actions=new WrapPanel();
+        if(ExperienceState.Names.ContainsKey(kind)){actions.Children.Add(Button("開啟 "+Get(row,"product",ExperienceState.Names.GetValueOrDefault(kind,kind)),()=>OpenCad(kind),true));actions.Children.Add(RecheckButton(kind));actions.Children.Add(Button("選擇程式",()=>ChooseApplication(kind)));actions.Children.Add(Button(ExperienceState.Flag(row,"installed")?"設定／修復":"安裝 MCP",()=>setup(kind,ExperienceState.Flag(row,"installed")?4:3)));}
+        else actions.Children.Add(Button("查看 MCP 管理",()=>Navigate("mcps")));
+        panel.Children.Add(actions);
         if(host.LastCheckedAt(kind) is DateTime checkedAt)panel.Children.Add(Text("上次檢查："+checkedAt.ToString("HH:mm:ss"),10,color:Muted));
         if(!ExperienceState.Flag(row,"managed"))panel.Children.Add(Text("既有 MCP 設定 · 可直接檢查；完成 Toolkit 安裝與啟用後會記錄最近指令。",11,color:Muted));
         if(kind=="rhino"){
@@ -125,8 +131,7 @@ public sealed class ManagerWindow : Window
         try{var state=ExperienceState.Load(host.Root);state.Paths[kind]=dialog.FileName;state.Save(host.Root);footer.Text="已記住程式位置；按「開啟」即可使用，不需要輸入指令。";}
         catch(Exception ex){Error(ex);}
     }
-    void Installations() {
-        Header("安裝與版本","採用經 Toolkit 測試的固定組合，各套軟體可獨立安裝。");
+    void ToolkitUpdates() {
         var updates=Card("MCP Toolkit",host.Version+(host.Version.Contains('-')?" · Beta 測試版":"")+" · Windows x64");updateMessage=Text(host.Updates.Message,12,color:Muted);updates.Children.Add(updateMessage);
         if(host.Updates.Applying){
             updateProgress=new ProgressBar{Height=6,Minimum=0,Maximum=100,IsIndeterminate=!host.Updates.Percent.HasValue,Value=host.Updates.Percent??0,Margin=new Thickness(0,12,0,8)};updates.Children.Add(updateProgress);
@@ -135,21 +140,37 @@ public sealed class ManagerWindow : Window
             if(host.Updates.CanCancel)updates.Children.Add(Button("取消下載",host.Updates.CancelDownload));
         }
         var toolkitActions=new WrapPanel();var check=Button("檢查更新",async()=>await host.Updates.Check(true));check.IsEnabled=!host.Updates.Busy;toolkitActions.Children.Add(check);
-        toolkitActions.Children.Add(Button("安裝／加入 MCP",()=>setup(null,0)));toolkitActions.Children.Add(Button("查看發布版本 ↗",()=>Process.Start(new ProcessStartInfo("https://github.com/allen2123231/cad-toolkit/releases"){UseShellExecute=true})));updates.Children.Add(toolkitActions);
+        toolkitActions.Children.Add(Button("管理 MCP",()=>Navigate("mcps")));toolkitActions.Children.Add(Button("查看發布版本 ↗",()=>Process.Start(new ProcessStartInfo("https://github.com/allen2123231/cad-toolkit/releases"){UseShellExecute=true})));updates.Children.Add(toolkitActions);
         if(host.Updates.Visible){
             var release=host.Updates.Available!.Value;updates.Children.Add(Text("可更新至 "+host.Updates.Version,16,true));
-            updates.Children.Add(new ScrollViewer{Content=Text(ExperienceState.Text(release,"notes"),12),MaxHeight=190,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
+            updates.Children.Add(MarkdownNotes.View(ExperienceState.Text(release,"notes")));
             var update=Button(host.Updates.Busy?"正在下載更新…":"立即更新（保留設定）",async()=>await host.Updates.Apply(),true);update.IsEnabled=!host.Updates.Busy;updates.Children.Add(update);
             var actions=new WrapPanel();actions.Children.Add(Button("稍後提醒",host.Updates.Later));actions.Children.Add(Button("略過此版本",host.Updates.Skip));updates.Children.Add(actions);
         }
-        foreach(var kind in new[]{"rhino","autocad","inventor"}){
-            var row=host.Rows.FirstOrDefault(r=>Get(r,"id")==kind);var card=Card(ExperienceState.Names[kind],row.ValueKind==JsonValueKind.Object?VersionLabel(row):"尚未完成安裝");
-            card.Children.Add(Text("目前版本："+(row.ValueKind==JsonValueKind.Object?Get(row,"version","尚未確認"):"尚未安裝"),12));
-            var actions=new WrapPanel();actions.Children.Add(Button("安裝／修復 "+ExperienceState.Names[kind]+" MCP",()=>setup(kind,3),true));actions.Children.Add(Button("連線設定",()=>setup(kind,4)));card.Children.Add(actions);
+    }
+    void McpManagement(){
+        Header("MCP 管理","依需要安裝與管理 MCP。只有已安裝項目會出現在「MCP 狀態」。");
+        var catalog=host.Catalog;int installed=catalog.Count(c=>c.Installed),available=catalog.Length-installed;
+        var categories=new WrapPanel{Margin=new Thickness(0,14,0,6)};
+        categories.Children.Add(Button("已安裝（"+installed+"）",()=>{installedCategory=true;Render();},installedCategory));
+        categories.Children.Add(Button("未安裝（"+available+"）",()=>{installedCategory=false;Render();},!installedCategory));body.Children.Add(categories);
+        var entries=catalog.Where(c=>c.Installed==installedCategory).ToArray();
+        if(entries.Length==0)Card(installedCategory?"尚未安裝 MCP":"目前沒有未安裝的 MCP",installedCategory?"切換到「未安裝」，選擇你要使用的元件。":"目前目錄中的元件都已安裝，後續新增的 MCP 會出現在這裡。");
+        foreach(var entry in entries){
+            var row=entry.Row;var card=Card("");var heading=new StackPanel{Orientation=Orientation.Horizontal};heading.Children.Add(NativeIcon(entry.Id,false,32));var label=new StackPanel();label.Children.Add(Text(entry.Name,16,true));label.Children.Add(Text(entry.Installed?VersionLabel(row):"尚未安裝",12,color:Muted));heading.Children.Add(label);card.Children.Add(heading);
+            card.Children.Add(Text((entry.Installed?"目前版本：":"可安裝版本：")+(entry.Installed?Get(row,"version","版本待確認"):entry.ExpectedVersion.Length>0?entry.ExpectedVersion:"尚未提供"),12));
+            if(entry.Installed)card.Children.Add(Text("連線狀態："+Label(row),12,color:Muted));
+            var actions=new WrapPanel();
+            if(entry.CanManage){
+                actions.Children.Add(Button(entry.Installed?"修復／重新安裝":"安裝 "+entry.Name+" MCP",()=>setup(entry.Id,3),true));
+                if(entry.Installed){actions.Children.Add(RecheckButton(entry.Id));actions.Children.Add(Button("連線設定",()=>setup(entry.Id,4)));}
+            }else card.Children.Add(Text(entry.Installed?"已偵測到既有安裝，請透過原提供者管理。":"此元件尚未提供 Toolkit 安裝整合。",11,color:Muted));
+            card.Children.Add(actions);
         }
     }
     void Settings() {
-        Header("設定","依你的習慣啟動與管理 MCP Toolkit。");
+        Header("設定與更新","管理 Toolkit 主程式更新、通知與啟動偏好。MCP 元件請到「MCP 管理」。");
+        ToolkitUpdates();
         var updates=Card("更新與通知","啟動時及每天背景檢查；同一版本只通知一次，未更新時面板保留提示。");
         foreach(var item in new[]{("自動檢查更新",host.Updates.Preferences.Automatic,0),("顯示 Windows 更新通知",host.Updates.Preferences.Notifications,1),("接收 Beta 測試版更新",host.Updates.Preferences.Beta,2)}){
             var option=new CheckBox{Content=item.Item1,IsChecked=item.Item2,Margin=new Thickness(0,8,0,0)};
@@ -160,7 +181,7 @@ public sealed class ManagerWindow : Window
         var toggle=new CheckBox{Content="登入 Windows 時啟動 MCP Toolkit",IsChecked=enabled,Margin=new Thickness(0,12,0,8)};
         toggle.Click+=(_,_)=>{try{using var run=Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");if(toggle.IsChecked==true)run.SetValue("McpToolkit",$"\"{Environment.ProcessPath}\" --background \"--root={host.Root}\"");else run.DeleteValue("McpToolkit",false);}catch(Exception ex){Error(ex);}};startup.Children.Add(toggle);
         var privacy=Card("本機指令紀錄","只記錄 Toolkit 所管理 MCP 的新對話。保留最近 7 天、最多 2,000 筆；不會記錄參數、完整輸出或提示詞。");privacy.Children.Add(Button("清除最近指令",async()=>{if(MessageBox.Show(this,"清除這台電腦的 Toolkit 指令紀錄？","MCP Toolkit",MessageBoxButton.YesNo,MessageBoxImage.Question)!=MessageBoxResult.Yes)return;try{await host.Run("clear-history");await host.Refresh();}catch(Exception ex){Error(ex);}}));
-        var config=Card("元件與問題處理","Rhino 首次安裝後需重新開啟軟體；AutoCAD 自動載入套件由安裝按鈕設定；Inventor 使用內建 COM 連線。");config.Children.Add(Button("安裝／修復 MCP",()=>setup(null,4)));
+        var config=Card("元件與問題處理","Rhino 首次安裝後需重新開啟軟體；AutoCAD 自動載入套件由安裝按鈕設定；Inventor 使用內建 COM 連線。");config.Children.Add(Button("開啟 MCP 管理",()=>Navigate("mcps")));
         config.Children.Add(Button("還原上一組設定",async()=>await Manage("rollback","還原上一組 MCP 設定？目前文件會保留，完成後需在 Codex 開啟新對話。")));
         config.Children.Add(Button("完整解除安裝 MCP Toolkit",()=>{try{UninstallCleanup.Launch(host.Root);}catch(Exception ex){Error(ex);}}));
     }

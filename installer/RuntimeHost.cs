@@ -12,6 +12,9 @@ public sealed class RuntimeHost : IDisposable
 {
     public string Root { get; }
     public string Version { get; }
+    public JsonElement SourceManifest {get;}
+    public IEnumerable<JsonElement> InstalledRows=>Rows.Where(r=>ExperienceState.Flag(r,"installed"));
+    public McpCatalogEntry[] Catalog=>McpCatalog.Entries(SourceManifest,Rows);
     public UpdateController Updates {get;}
     public JsonElement Snapshot { get; private set; }=JsonDocument.Parse("{\"rows\":[],\"history\":[]}").RootElement.Clone();
     public string Message { get; private set; }="正在檢查本機連線…";
@@ -52,6 +55,7 @@ public sealed class RuntimeHost : IDisposable
         }
         manifest=Path.Combine(helpers,"sources.json");
         using(var input=assembly.GetManifestResourceStream("CadToolkitSetup.sources.json")!)using(var output=File.Create(manifest))input.CopyTo(output);
+        SourceManifest=JsonDocument.Parse(File.ReadAllText(manifest)).RootElement.Clone();
         runtime=args.FirstOrDefault(a=>a.StartsWith("--runtime="))?[10..];
         timer=new DispatcherTimer{Interval=TimeSpan.FromSeconds(10)};timer.Tick+=async(_,_)=>await Refresh();if(start)timer.Start();
         windowsTimer=new DispatcherTimer{Interval=TimeSpan.FromSeconds(2)};windowsTimer.Tick+=async(_,_)=>await RefreshWindows();if(start)windowsTimer.Start();
@@ -64,6 +68,7 @@ public sealed class RuntimeHost : IDisposable
     JsonElement LiveRow(JsonElement row){
         if(!ExperienceState.Flag(row,"installed"))return row;
         string kind=ExperienceState.Text(row,"id"),code=ExperienceState.Text(row,"code");string? liveCode=null;
+        if(!ExperienceState.Names.ContainsKey(kind))return row;
         if(IsManualCheck&&(CheckingKind==null||CheckingKind==kind))liveCode="CHECKING";
         else if(CheckError!=null)liveCode="CHECK_FAILED";
         else if(!HasFreshWindows)liveCode="CHECKING";
@@ -122,7 +127,7 @@ public sealed class RuntimeHost : IDisposable
         using var timeout=CancellationTokenSource.CreateLinkedTokenSource(stop.Token);timeout.CancelAfter(TimeSpan.FromSeconds(32));
         try{await process.WaitForExitAsync(timeout.Token);}catch(OperationCanceledException){try{process.Kill(true);}catch(InvalidOperationException){}throw new TimeoutException("連線檢查逾時，稍後會自動重試。");}
         string text=await output;string error=await errors;
-        if(process.ExitCode!=0){string message="無法完成這次要求，請重新檢查或到「安裝與版本」修復元件。";try{using var failure=JsonDocument.Parse(text);if(failure.RootElement.TryGetProperty("error",out var value)&&value.ValueKind==JsonValueKind.String)message=value.GetString()!;}catch(JsonException){}throw new InvalidOperationException(message);}
+        if(process.ExitCode!=0){string message="無法完成這次要求，請重新檢查或到「MCP 管理」修復元件。";try{using var failure=JsonDocument.Parse(text);if(failure.RootElement.TryGetProperty("error",out var value)&&value.ValueKind==JsonValueKind.String)message=value.GetString()!;}catch(JsonException){}throw new InvalidOperationException(message);}
         return JsonDocument.Parse(text).RootElement.Clone();
     }
     public Task Recheck(string? kind=null){
@@ -147,7 +152,7 @@ public sealed class RuntimeHost : IDisposable
                 string kind=ExperienceState.Text(row,"id");if(activationAttempts.TryGetValue(kind,out var last)&&(DateTime.Now-last).TotalMinutes<1)continue;
                 activationAttempts[kind]=DateTime.Now;Message="正在完成 "+ExperienceState.Names[kind]+" 自動連線…";Changed?.Invoke();
                 try{var service=new ToolkitService(Root){Token=stop.Token};await service.Engine("activate",[kind]);activated=true;Message=ExperienceState.Names[kind]+" 已啟用，請在 Codex 開啟新對話。";}
-                catch(Exception){Message=ExperienceState.Names[kind]+" 等待完成連線，可從安裝與版本頁修復。";}
+                catch(Exception){Message=ExperienceState.Names[kind]+" 等待完成連線，可從MCP 管理頁修復。";}
             }
             if(activated)Snapshot=await Run("snapshot");
             foreach(var row in Rows)checkedAt[ExperienceState.Text(row,"id")]=DateTime.Now;
