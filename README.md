@@ -4,13 +4,13 @@ Windows 右下角的 MCP 管理程式，整合 **Rhino、AutoCAD、Inventor**。
 
 點系統匣圖示查看小型狀態面板，需要時再開完整管理視窗。顯示目前文件、連線方式／端口、MCP 版本、安裝狀態與最近指令。
 
-目前修正版為 **0.5.0-beta.5（未簽章 Beta）**，新增 Windows AutoCAD LT 2027 偵測、啟動及連線適配。LT 專項隔離測試與完整 AutoCAD 實機回歸已完成；LT 2027 實機仍待原問題電腦驗收。後續版本預設仍受程式簽章發布門檻限制。
+目前修正版為 **0.5.0-beta.6（未簽章 Beta）**。MCP 管理改用「已安裝／加入新 MCP」卡片網格，支援單項解除安裝；狀態只列已安裝元件，主程式更新集中於「設定與更新」，版本說明以 Markdown 排版。後續版本預設仍受程式簽章發布門檻限制。
 
-開發中的 **0.5.0-beta.6** 調整 MCP 管理分類、狀態清單及 Markdown 說明，主程式更新集中於「設定與更新」；目前供本機／CI 測試，尚未公開發布。
+AutoCAD LT 2027 適配延續 Beta 5：LT 專項隔離測試與完整 AutoCAD 實機回歸已完成；LT 2027 實機仍待原問題電腦驗收。
 
 **Windows 相容性：本 Beta 尚未簽章，開啟 Smart App Control 的電腦可能無法安裝或載入部分元件。正式簽章與 SAC 實機驗收尚未完成。** [簽章盤點與後續處理](docs/windows-signing.md)
 
-**[下載已發布 Windows 預覽版](https://github.com/allen2123231/cad-toolkit/releases/tag/v0.5.0-beta.5)** · **[第一次使用](docs/getting-started.md)** · **[驗證範圍](docs/validation.md)**
+**[下載已發布 Windows 預覽版](https://github.com/allen2123231/cad-toolkit/releases/tag/v0.5.0-beta.6)** · **[第一次使用](docs/getting-started.md)** · **[驗證範圍](docs/validation.md)**
 
 <img src="docs/images/mcp-install.png" width="620" alt="MCP Toolkit 新安裝介面，實際 WPF 渲染，示範資料">
 
