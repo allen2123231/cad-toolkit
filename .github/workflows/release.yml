@@ -47,6 +47,7 @@ jobs:
           dotnet run --project tests/desktop/DesktopChecks.csproj -c Release -- test-results/update-responsive --repro-update-responsive
           dotnet run --project tests/desktop/DesktopChecks.csproj -c Release -- test-results/lt-interface --repro-lt-ui
           dotnet run --project tests/desktop/DesktopChecks.csproj -c Release -- test-results/mcp-management --repro-mcp-management
+          dotnet run --project tests/desktop/DesktopChecks.csproj -c Release -- test-results/management-refresh --repro-management-refresh
       - name: 檢查打包後 Rhino 視窗保護
         shell: pwsh
         run: |

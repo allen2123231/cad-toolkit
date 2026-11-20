@@ -18,6 +18,9 @@ public sealed class ManagerWindow : Window
     readonly TextBlock footer=Text("",11,color:Muted);
     string page="overview";
     bool installedCategory=true;
+    string? managementShape;
+    readonly Dictionary<string,TextBlock> managementStatus=new();
+    readonly List<(Button Button,string? Kind)> recheckButtons=new();
     TextBlock? updateMessage,updateActivity;
     Border? updateWarning;
     TextBlock? updateWarningText;
@@ -44,7 +47,15 @@ public sealed class ManagerWindow : Window
         updateClock.Tick+=(_,_)=>{if(updateActivity!=null&&host.Updates.Applying)updateActivity.Text=host.Updates.Activity;};updateClock.Start();
         Closed+=(_,_)=>{host.Changed-=HostChanged;host.Updates.Changed-=UpdateFeedback;updateClock.Stop();};Render();
     }
-    void HostChanged(){if(page=="settings")footer.Text=host.Message;else Render();}
+    void HostChanged(){if(page=="settings"||(page=="mcps"&&RefreshManagement()))footer.Text=host.Message;else Render();}
+    static string ManagementShape(McpCatalogEntry[] catalog)=>JsonSerializer.Serialize(catalog.Select(e=>new{e.Id,e.Name,e.Installed,e.ExpectedVersion,e.CanManage,Version=Get(e.Row,"version"),Compatibility=Get(e.Row,"update")}));
+    bool RefreshManagement(){
+        var catalog=host.Catalog;
+        if(managementShape!=ManagementShape(catalog))return false;
+        foreach(var entry in catalog)if(managementStatus.TryGetValue(entry.Id,out var status))status.Text="連線狀態："+Label(entry.Row);
+        foreach(var item in recheckButtons)UpdateRecheckButton(item.Button,item.Kind);
+        return true;
+    }
     void UpdateFeedback(){
         if(!Dispatcher.CheckAccess()){Dispatcher.BeginInvoke(UpdateFeedback);return;}
         if(page!="settings")return;
@@ -61,6 +72,7 @@ public sealed class ManagerWindow : Window
         body.Children.Add(new Border{Child=panel,BorderBrush=Line,BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(7),Padding=new Thickness(18),Margin=new Thickness(0,14,0,0)});return panel;
     }
     void Render() {
+        managementShape=null;managementStatus.Clear();recheckButtons.Clear();
         updateMessage=null;updateActivity=null;updateProgress=null;updateWarning=null;updateWarningText=null;renderedBusy=host.Updates.Busy;renderedVisible=host.Updates.Visible;renderedVersion=host.Updates.Version;renderedCancelable=host.Updates.CanCancel;
         body.Children.Clear();nav.Children.Clear();footer.Text=host.Message;
         foreach(var item in new[]{("overview","MCP 狀態"),("mcps","MCP 管理"),("history","最近指令"),("settings","設定與更新")}){
@@ -78,9 +90,12 @@ public sealed class ManagerWindow : Window
     }
     static string Get(JsonElement r,string key,string fallback="")=>ExperienceState.Text(r,key,fallback);
     Button RecheckButton(string? kind=null){
-        bool checking=host.IsChecking&&(kind==null||host.CheckingKind==null||host.CheckingKind==kind);
-        var button=Button(checking?"檢查中…":"重新檢查",async()=>await host.Recheck(kind));button.IsEnabled=!host.IsChecking;
+        var button=Button("重新檢查",async()=>await host.Recheck(kind));button.MinWidth=88;UpdateRecheckButton(button,kind);recheckButtons.Add((button,kind));
         System.Windows.Automation.AutomationProperties.SetAutomationId(button,"recheck-"+(kind??"all"));return button;
+    }
+    void UpdateRecheckButton(Button button,string? kind){
+        bool checking=host.IsChecking&&host.IsManualCheck&&(kind==null||host.CheckingKind==null||host.CheckingKind==kind);
+        button.Content=checking?"檢查中…":"重新檢查";button.IsEnabled=!(host.IsChecking&&host.IsManualCheck);
     }
     public static string Label(JsonElement row)=>Get(row,"code") switch {
         "CHECK_FAILED"=>"檢查失敗",
@@ -170,6 +185,7 @@ public sealed class ManagerWindow : Window
     void McpManagement(){
         Header("MCP 管理","依需要安裝與管理 MCP。只有已安裝項目會出現在「MCP 狀態」。");
         var catalog=host.Catalog;int installed=catalog.Count(c=>c.Installed),available=catalog.Length-installed;
+        managementShape=ManagementShape(catalog);
         var categories=new WrapPanel{Margin=new Thickness(0,14,0,6)};
         categories.Children.Add(Button("已安裝（"+installed+"）",()=>{installedCategory=true;Render();},installedCategory));
         categories.Children.Add(Button("加入新 MCP（"+available+"）",()=>{installedCategory=false;Render();},!installedCategory));body.Children.Add(categories);
@@ -180,7 +196,7 @@ public sealed class ManagerWindow : Window
             var card=new StackPanel();grid.Children.Add(new Border{Child=card,BorderBrush=Line,BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(7),Padding=new Thickness(18)});
             var row=entry.Row;var heading=new StackPanel{Orientation=Orientation.Horizontal};heading.Children.Add(NativeIcon(entry.Id,false,32));var label=new StackPanel();label.Children.Add(Text(entry.Name,16,true));label.Children.Add(Text(entry.Installed?VersionLabel(row):"尚未安裝",12,color:Muted));heading.Children.Add(label);card.Children.Add(heading);
             card.Children.Add(Text((entry.Installed?"目前版本：":"可安裝版本：")+(entry.Installed?Get(row,"version","版本待確認"):entry.ExpectedVersion.Length>0?entry.ExpectedVersion:"尚未提供"),12));
-            if(entry.Installed)card.Children.Add(Text("連線狀態："+Label(row),12,color:Muted));
+            if(entry.Installed){var state=Text("連線狀態："+Label(row),12,color:Muted);managementStatus[entry.Id]=state;card.Children.Add(state);}
             var actions=new WrapPanel();
             if(entry.CanManage){
                 actions.Children.Add(Button(entry.Installed?"修復":"安裝 "+entry.Name+" MCP",()=>setup(entry.Id,3),true));

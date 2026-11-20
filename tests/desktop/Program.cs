@@ -150,6 +150,44 @@ class DesktopChecks
                 Capture(view,Path.Combine(output,"update-progress-144.png"),144);updateHost.Updates.CancelDownload();await pending;Assert(!launched&&!updateHost.Updates.Busy,"Cancelling stalled download never starts installation");view.Close();
                 Console.WriteLine("Responsive update UI checks passed: "+count);app.Shutdown(0);return;
             }
+            if(args.Contains("--repro-management-refresh")){
+                var faults=new List<string>();
+                var snapshot=JsonDocument.Parse("""{"rows":[{"id":"autocad","installed":true,"version":"3.2.0","update":"compatible","code":"CAD_NOT_RUNNING"},{"id":"inventor","installed":true,"version":"0.1.0","update":"compatible","code":"CAD_NOT_RUNNING"},{"id":"rhino","installed":true,"version":"0.5.3","update":"compatible","code":"CAD_NOT_RUNNING"}]}""").RootElement.Clone();
+                TaskCompletionSource<JsonElement>? response=null;
+                Task<JsonElement> ProbeManagement(string action,string[] arguments)=>action=="snapshot"?response!.Task:Task.FromResult(JsonDocument.Parse("""{"windows":[],"requests":[],"confirmations":[]}""").RootElement.Clone());
+                using var quietHost=new RuntimeHost(Path.Combine(output,"management-refresh-root"),[],false,ProbeManagement);
+                typeof(RuntimeHost).GetProperty("Snapshot")!.SetValue(quietHost,snapshot);
+                quietHost.ApplyWindowSnapshot(JsonDocument.Parse("""{"windows":[],"requests":[],"confirmations":[]}""").RootElement);
+                var management=new ManagerWindow(quietHost,(_,_)=>{}){Width=720,Height=530};management.Show();management.Navigate("mcps");management.UpdateLayout();
+                var original=Find<Button>(management).Single(b=>System.Windows.Automation.AutomationProperties.GetAutomationId(b)=="recheck-autocad");
+                var grid=Find<McpCardGrid>(management).Single();
+                var scroller=Find<ScrollViewer>(management).First(v=>v.ScrollableHeight>0);scroller.ScrollToVerticalOffset(90);management.UpdateLayout();double scroll=scroller.VerticalOffset;
+                var point=original.TranslatePoint(new Point(),management);
+                for(int cycle=0;cycle<3;cycle++){
+                    response=new(TaskCreationOptions.RunContinuationsAsynchronously);var background=quietHost.Refresh();management.UpdateLayout();
+                    var button=Find<Button>(management).Single(b=>System.Windows.Automation.AutomationProperties.GetAutomationId(b)=="recheck-autocad");
+                    if(button.Content?.ToString()!="重新檢查"||!button.IsEnabled)faults.Add("Background refresh changes or disables the manual recheck button");
+                    if(!ReferenceEquals(button,original)||!Find<McpCardGrid>(management).Contains(grid))faults.Add("Background refresh rebuilds MCP management cards");
+                    if(cycle==0)Capture(management,Path.Combine(output,"background-refresh-144.png"),144);
+                    response.SetResult(snapshot);await background;management.UpdateLayout();
+                    if(Math.Abs(scroller.VerticalOffset-scroll)>.5||Math.Abs(original.TranslatePoint(new Point(),management).Y-point.Y)>.5)faults.Add("Background refresh changes scroll or button position");
+                }
+                response=new(TaskCreationOptions.RunContinuationsAsynchronously);var manual=quietHost.Recheck("autocad");await Task.Yield();management.UpdateLayout();
+                if(!Find<Button>(management).Any(b=>System.Windows.Automation.AutomationProperties.GetAutomationId(b)=="recheck-autocad"&&b.Content?.ToString()=="檢查中…"&&!b.IsEnabled))faults.Add("Manual recheck has no progress feedback");
+                if(Find<Button>(management).Any(b=>System.Windows.Automation.AutomationProperties.GetAutomationId(b)=="recheck-rhino"&&b.Content?.ToString()=="檢查中…"))faults.Add("Manual recheck changes unrelated software labels");
+                response.SetResult(snapshot);await manual;management.UpdateLayout();
+                Capture(management,Path.Combine(output,"management-stable-144.png"),144);
+                response=new(TaskCreationOptions.RunContinuationsAsynchronously);var failing=quietHost.Refresh();response.SetException(new IOException("fixture background failure"));await failing;management.UpdateLayout();
+                if(!Find<TextBlock>(management).Any(t=>t.Text=="連線狀態：檢查失敗")||!Find<Button>(management).Contains(original))faults.Add("In-place refresh hides failure or rebuilds cards");
+                response=new(TaskCreationOptions.RunContinuationsAsynchronously);var recovered=quietHost.Refresh();response.SetResult(snapshot);await recovered;management.UpdateLayout();
+                if(Find<TextBlock>(management).Any(t=>t.Text=="連線狀態：檢查失敗"))faults.Add("Recovered status remains stale");
+                response=new(TaskCreationOptions.RunContinuationsAsynchronously);var removed=quietHost.Refresh();
+                response.SetResult(JsonDocument.Parse("""{"rows":[{"id":"autocad","installed":true,"version":"3.2.0","code":"CAD_NOT_RUNNING"},{"id":"inventor","installed":true,"version":"0.1.0","code":"CAD_NOT_RUNNING"},{"id":"rhino","installed":false,"code":"NOT_INSTALLED"}]}""").RootElement.Clone());await removed;management.UpdateLayout();
+                if(!Find<Button>(management).Any(b=>b.Content?.ToString()=="已安裝（2）")||Find<Button>(management).Any(b=>System.Windows.Automation.AutomationProperties.GetAutomationId(b)=="recheck-rhino"))faults.Add("Installation changes no longer update the catalog");
+                management.Close();
+                if(faults.Count>0)throw new Exception(string.Join("; ",faults.Distinct()));
+                Console.WriteLine("Quiet management background refresh checks passed");app.Shutdown(0);return;
+            }
             if(args.Contains("--repro-refresh-cards")){
                 var delayed=new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);var second=new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);var secondStarted=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);int requests=0;
                 Task<JsonElement> Probe(string action,string[] arguments){if(action!="snapshot")return Task.FromResult(JsonDocument.Parse("""{"windows":[],"requests":[],"confirmations":[]}""").RootElement.Clone());requests++;if(requests==1)return delayed.Task;if(requests==2){secondStarted.SetResult(true);return second.Task;}return Task.FromException<JsonElement>(new InvalidOperationException("fixture diagnostic failure"));}
