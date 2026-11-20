@@ -153,17 +153,19 @@ public sealed class ManagerWindow : Window
         var catalog=host.Catalog;int installed=catalog.Count(c=>c.Installed),available=catalog.Length-installed;
         var categories=new WrapPanel{Margin=new Thickness(0,14,0,6)};
         categories.Children.Add(Button("已安裝（"+installed+"）",()=>{installedCategory=true;Render();},installedCategory));
-        categories.Children.Add(Button("未安裝（"+available+"）",()=>{installedCategory=false;Render();},!installedCategory));body.Children.Add(categories);
+        categories.Children.Add(Button("加入新 MCP（"+available+"）",()=>{installedCategory=false;Render();},!installedCategory));body.Children.Add(categories);
         var entries=catalog.Where(c=>c.Installed==installedCategory).ToArray();
-        if(entries.Length==0)Card(installedCategory?"尚未安裝 MCP":"目前沒有未安裝的 MCP",installedCategory?"切換到「未安裝」，選擇你要使用的元件。":"目前目錄中的元件都已安裝，後續新增的 MCP 會出現在這裡。");
+        if(entries.Length==0)Card(installedCategory?"尚未安裝 MCP":"目前沒有可加入的新 MCP",installedCategory?"切換到「加入新 MCP」，選擇你要使用的元件。":"目前目錄中的元件都已安裝，後續新增的 MCP 會出現在這裡。");
+        var grid=new McpCardGrid();body.Children.Add(grid);
         foreach(var entry in entries){
-            var row=entry.Row;var card=Card("");var heading=new StackPanel{Orientation=Orientation.Horizontal};heading.Children.Add(NativeIcon(entry.Id,false,32));var label=new StackPanel();label.Children.Add(Text(entry.Name,16,true));label.Children.Add(Text(entry.Installed?VersionLabel(row):"尚未安裝",12,color:Muted));heading.Children.Add(label);card.Children.Add(heading);
+            var card=new StackPanel();grid.Children.Add(new Border{Child=card,BorderBrush=Line,BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(7),Padding=new Thickness(18)});
+            var row=entry.Row;var heading=new StackPanel{Orientation=Orientation.Horizontal};heading.Children.Add(NativeIcon(entry.Id,false,32));var label=new StackPanel();label.Children.Add(Text(entry.Name,16,true));label.Children.Add(Text(entry.Installed?VersionLabel(row):"尚未安裝",12,color:Muted));heading.Children.Add(label);card.Children.Add(heading);
             card.Children.Add(Text((entry.Installed?"目前版本：":"可安裝版本：")+(entry.Installed?Get(row,"version","版本待確認"):entry.ExpectedVersion.Length>0?entry.ExpectedVersion:"尚未提供"),12));
             if(entry.Installed)card.Children.Add(Text("連線狀態："+Label(row),12,color:Muted));
             var actions=new WrapPanel();
             if(entry.CanManage){
-                actions.Children.Add(Button(entry.Installed?"修復／重新安裝":"安裝 "+entry.Name+" MCP",()=>setup(entry.Id,3),true));
-                if(entry.Installed){actions.Children.Add(RecheckButton(entry.Id));actions.Children.Add(Button("連線設定",()=>setup(entry.Id,4)));}
+                actions.Children.Add(Button(entry.Installed?"修復":"安裝 "+entry.Name+" MCP",()=>setup(entry.Id,3),true));
+                if(entry.Installed){actions.Children.Add(RecheckButton(entry.Id));actions.Children.Add(Button("解除安裝",()=>{var dialog=new ComponentUninstallWindow(host,entry.Id,entry.Name){Owner=this};dialog.ShowDialog();}));}
             }else card.Children.Add(Text(entry.Installed?"已偵測到既有安裝，請透過原提供者管理。":"此元件尚未提供 Toolkit 安裝整合。",11,color:Muted));
             card.Children.Add(actions);
         }

@@ -84,12 +84,25 @@ class DesktopChecks
                 Capture(view,Path.Combine(output,"settings-updates-144.png"),144);
                 view.Navigate("overview");Capture(view,Path.Combine(output,"installed-status-144.png"),144);
                 view.Navigate("mcps");view.UpdateLayout();
-                if(!Find<Button>(view).Any(b=>b.Content?.ToString()=="未安裝（1）"))failures.Add("MCP management has no installed/uninstalled categories");
+                if(!Find<Button>(view).Any(b=>b.Content?.ToString()=="加入新 MCP（1）"))failures.Add("MCP management has no installed/uninstalled categories");
                 if(Find<TextBlock>(view).Any(t=>t.Text=="AutoCAD"))failures.Add("Installed category includes an uninstalled MCP");
+                if(Find<Button>(view).Any(b=>b.Content?.ToString()=="連線設定"))failures.Add("Duplicate connection settings action remains");
+                if(Find<Button>(view).Count(b=>b.Content?.ToString()=="解除安裝")!=2)failures.Add("Installed cards lack individual uninstall");
+                var cards=Find<McpCardGrid>(view).Single();
+                if(cards.Children.Count!=2||cards.Children[0].RenderSize.Width>=cards.RenderSize.Width*.9)failures.Add("Installed cards do not use multiple grid columns");
+                using(var unused=new RuntimeHost(Path.Combine(output,"removal-root"),[],false)){
+                    var componentRemoval=new ComponentUninstallWindow(unused,"rhino","Rhino");componentRemoval.Show();componentRemoval.UpdateLayout();
+                    if(!Find<Button>(componentRemoval).Any(b=>b.Content?.ToString()=="確認解除安裝"))failures.Add("Single MCP removal lacks scope confirmation");
+                    Capture(componentRemoval,Path.Combine(output,"component-uninstall-144.png"),144);componentRemoval.Close();
+                }
                 Capture(view,Path.Combine(output,"mcps-installed-144.png"),144);
-                var uninstalled=Find<Button>(view).Single(b=>b.Content?.ToString()=="未安裝（1）");uninstalled.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));view.UpdateLayout();
+                view.Width=720;view.UpdateLayout();
+                if(cards.Children[0].RenderSize.Width<cards.RenderSize.Width*.9)failures.Add("Narrow grid does not collapse to one column");
+                Capture(view,Path.Combine(output,"mcps-installed-narrow-144.png"),144);view.Width=1050;view.UpdateLayout();
+                var uninstalled=Find<Button>(view).Single(b=>b.Content?.ToString()=="加入新 MCP（1）");uninstalled.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));view.UpdateLayout();
                 if(!Find<TextBlock>(view).Any(t=>t.Text=="AutoCAD")||Find<TextBlock>(view).Any(t=>t.Text=="Rhino"||t.Text=="Inventor"))failures.Add("Uninstalled category is incorrect");
                 if(!Find<Button>(view).Any(b=>b.Content?.ToString()=="安裝 AutoCAD MCP"))failures.Add("Uninstalled MCP lacks its install action");
+                if(Find<McpCardGrid>(view).Count()!=1)failures.Add("New MCP category does not use the shared grid");
                 Capture(view,Path.Combine(output,"mcps-uninstalled-144.png"),144);
                 Find<Button>(view).Single(b=>b.Content?.ToString()=="安裝 AutoCAD MCP").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 if(requestedComponent!="autocad"||requestedStep!=3)failures.Add("Install action targets the wrong MCP");

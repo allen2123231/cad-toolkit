@@ -119,14 +119,14 @@ public sealed class ToolkitService
         string selected = string.Join(",", components);
         var events = new List<JsonElement>();
         if (selected.Length == 0) throw new InvalidOperationException("請至少選擇一套 CAD。");
-        string payload = action=="uninstall"?InstalledPayload():await Payload();
+        string payload = action is "uninstall" or "remove_component"?InstalledPayload():await Payload();
         var start = new ProcessStartInfo(Path.Combine(payload, "runtime", "python.exe")) {
             UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
             StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8 };
         if(ExperienceState.Codex() is string codex)start.Environment["MCP_TOOLKIT_CODEX"]=codex;
         string engine=Path.Combine(payload,"engine","manager.py");
-        if(action=="uninstall"){
-            string folder=Path.Combine(AppContext.BaseDirectory,"uninstall-engine");Directory.CreateDirectory(folder);
+        if(action is "uninstall" or "remove_component"){
+            string folder=Path.Combine(root,"desktop",Version,"uninstall-engine");Directory.CreateDirectory(folder);
             var assembly=Assembly.GetExecutingAssembly();
             foreach(string name in assembly.GetManifestResourceNames().Where(n=>n.StartsWith("CadToolkitSetup.engine."))){using var input=assembly.GetManifestResourceStream(name)!;using var output=File.Create(Path.Combine(folder,name[23..]));input.CopyTo(output);}
             engine=Path.Combine(folder,"manager.py");start.Environment["PYTHONPATH"]=Path.Combine(payload,"engine","vendor");

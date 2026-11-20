@@ -169,6 +169,8 @@ class Manager:
         return {c for c in components if policy.get(c,{}).get('enabled',True)}
 
     def record_prepared(self,component,target):
+        self.state['removed_components']=[c for c in self.state.get('removed_components',[]) if c!=component]
+        self.state.get('component_removals',{}).pop(component,None)
         prepared=self.prepared();prepared[component]=str(target);self.state['prepared']=prepared;self.save()
 
     def prepare_autocad(self,target):
@@ -562,6 +564,54 @@ class Manager:
             install_bundle(previous["autocad"])
         emit("已還原上一組 MCP 設定；請重新啟動 Codex 對話。", active=previous)
 
+    def remove_component(self, selected):
+        if len(selected)!=1 or selected[0] not in COMPONENTS:
+            raise ValueError('請一次選擇一套 MCP 解除安裝')
+        component=selected[0]
+        names={'rhino':('Rhino.exe',),'autocad':('acad.exe','acadlt.exe'),'inventor':('Inventor.exe',)}[component]
+        if any(processes(name) for name in names):
+            raise RuntimeError('請先自行儲存並關閉對應的 CAD，再解除安裝這套 MCP')
+        prepared=self.prepared()
+        if component not in prepared and component in self.state.get('component_removals',{}):
+            prepared[component]=self.state['component_removals'][component]
+        if component not in prepared:
+            emit('這套 MCP 已解除安裝。', outcome='completed');return
+        backup=Path(os.environ.get('LOCALAPPDATA',self.root.parent))/'McpToolkitBackups'/('component-'+component+'-'+dt.datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
+        backup.mkdir(parents=True)
+        atomic_json(backup/'state.json',self.state)
+        if self.config.path.is_file():shutil.copy2(self.config.path,backup/'config-before.toml')
+        enabled=self.enabled_components(self.state.get('active',{}))-{component}
+        targets=set(prepared.values())|set((self.state.get('previous') or {}).values())
+        versions=self.root/'versions'
+        if versions.is_dir() and not versions.is_symlink() and not versions.is_junction():
+            targets.update(str(p) for p in versions.iterdir() if p.is_dir() and not p.is_symlink() and not p.is_junction())
+        self.checkpoint()
+        emit('正在停用這套 MCP 並移除自動連線外掛…',cancellable=False)
+        # Persist exclusion first: failed cleanup cannot re-enable an old cached build.
+        self.state.setdefault('component_removals',{})[component]=prepared[component]
+        self.state['removed_components']=sorted(set(self.state.get('removed_components',[]))|{component})
+        for key in ('active','prepared','previous'):
+            if isinstance(self.state.get(key),dict):self.state[key].pop(component,None)
+        if self.state.get('candidate'):
+            self.state['candidate']['selected']=[c for c in self.state['candidate'].get('selected',[]) if c!=component]
+        self.state['auto_enable_pending']=[c for c in self.state.get('auto_enable_pending',[]) if c!=component]
+        self.config.set_policy(enabled,self.state['originals']);self.save()
+        self.register_plugin(self.state.get('active',{}),prepared[component],enabled)
+        native={'removed':[],'preserved':[]}
+        if component=='autocad':
+            from autocad_setup import remove_bundle
+            for target in targets:remove_bundle(target)
+        elif component=='rhino':
+            from uninstall_cleanup import remove_rhino
+            native=remove_rhino(targets,backup)
+        atomic_json(backup/'native-removal.json',native)
+        if not native['preserved']:
+            self.state['component_removals'].pop(component,None);self.save()
+        # Immutable version caches may be shared by other MCPs or an existing
+        # Codex process. Full Toolkit uninstall owns their eventual deletion.
+        emit('這套 MCP 已解除安裝；其他 MCP、Toolkit 與工作文件已保留。請重新啟動 Codex，讓既有對話卸載舊工具。',
+             outcome='needs_action' if native['preserved'] else 'completed',backup=str(backup),preserved=native['preserved'])
+
     def uninstall(self):
         if any(processes(name) for name in ('Rhino.exe','acad.exe','Inventor.exe')):
             raise RuntimeError("請先自行儲存工作並關閉 CAD，再解除安裝")
@@ -625,7 +675,7 @@ class Manager:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["preflight", "setup", "update", "install", "configure_plugin", "configure_rhino", "configure_autocad", "diagnose", "activate", "rollback", "uninstall"])
+    parser.add_argument("action", choices=["preflight", "setup", "update", "install", "configure_plugin", "configure_rhino", "configure_autocad", "diagnose", "activate", "rollback", "uninstall", "remove_component"])
     parser.add_argument("--root", default=str(Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "McpToolkit"))
     parser.add_argument("--components", default="autocad,inventor,rhino")
     parser.add_argument("--payload")
@@ -645,7 +695,8 @@ def main():
                 marker = Path(args.cancel_file).resolve()
                 if marker.parent != manager.root: raise ValueError('取消標記必須位於安裝目錄')
                 manager.cancel_file = marker
-            if args.action == "install": manager.install(args.payload, selected, args.setup, args.defer_plugin)
+            if args.action == "remove_component": manager.remove_component(selected)
+            elif args.action == "install": manager.install(args.payload, selected, args.setup, args.defer_plugin)
             elif args.action == "setup": manager.setup(args.payload, selected, args.setup)
             elif args.action == "update": manager.update(args.payload, selected, args.setup)
             elif args.action == "diagnose": manager.diagnose(selected, args.active)

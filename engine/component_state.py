@@ -33,4 +33,4 @@ def prepared_targets(root,state):
                 stamp=(marker if marker.exists() else target/'ready.json').stat().st_mtime_ns
                 if component not in found or stamp>found[component][0]:found[component]=(stamp,str(target))
     result.update({c:p for c,(_,p) in found.items()})
-    return result
+    return {c:p for c,p in result.items() if c not in state.get('removed_components',[])}

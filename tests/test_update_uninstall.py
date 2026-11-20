@@ -50,6 +50,72 @@ class UpdateTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):self.manager.uninstall()
         self.assertEqual(self.manager.state,state)
 
+class ComponentRemovalTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.base=Path(self.temp.name)
+        self.env=patch.dict(os.environ,{'CODEX_HOME':str(self.base/'codex'),'LOCALAPPDATA':str(self.base),'APPDATA':str(self.base/'roaming')});self.env.start()
+        self.manager=Manager(self.base/'installed');self.manager.root.mkdir()
+        self.target=self.manager.root/'versions/shared';self.target.mkdir(parents=True)
+        self.mapping={c:str(self.target) for c in ('rhino','autocad','inventor')}
+        atomic_json(self.target/'ready.json',{'selected':list(self.mapping),'version':'fixture'})
+        for c in self.mapping:
+            python=self.target/'envs'/c/'Scripts/python.exe';python.parent.mkdir(parents=True);python.write_bytes(b'fixture')
+        self.manager.state.update(active=dict(self.mapping),prepared=dict(self.mapping),previous=dict(self.mapping),candidate={'path':str(self.target),'selected':list(self.mapping)},auto_enable_pending=list(self.mapping))
+        self.manager.config.set_policy(set(self.mapping),self.manager.state['originals']);self.manager.save()
+        self.process=patch('manager.processes',return_value=[]);self.process.start()
+        self.plugin=patch.object(self.manager,'register_plugin');self.register=self.plugin.start()
+        self.rhino=patch('uninstall_cleanup.remove_rhino',return_value={'removed':[],'preserved':[]});self.remove_rhino=self.rhino.start()
+        self.autocad=patch('autocad_setup.remove_bundle');self.remove_bundle=self.autocad.start()
+    def tearDown(self):
+        for mock in (self.autocad,self.rhino,self.plugin,self.process,self.env):mock.stop()
+        self.temp.cleanup()
+    def test_single_removal_preserves_others_and_excludes_cached_recovery(self):
+        self.manager.remove_component(['rhino'])
+        self.assertEqual(set(self.manager.prepared()),{'autocad','inventor'})
+        for key in ('active','prepared','previous'):self.assertEqual(set(self.manager.state[key]),{'autocad','inventor'})
+        self.assertNotIn('rhino',self.manager.state['candidate']['selected'])
+        policy=self.manager.config.load()['plugins']['cad-toolkit@cad-toolkit-local']['mcp_servers']
+        self.assertFalse(policy['rhino']['enabled']);self.assertTrue(policy['autocad']['enabled']);self.assertTrue(policy['inventor']['enabled'])
+        self.remove_rhino.assert_called_once();self.remove_bundle.assert_not_called()
+        self.assertTrue((self.target/'envs/inventor/Scripts/python.exe').exists())
+        restarted=Manager(self.manager.root);self.assertNotIn('rhino',restarted.prepared())
+        self.manager.record_prepared('rhino',self.target);self.assertIn('rhino',self.manager.prepared())
+    def test_autocad_removal_handles_lt_and_only_removes_autocad(self):
+        with patch('manager.processes',side_effect=lambda n:[{'pid':1}] if n=='acadlt.exe' else []):
+            before=copy.deepcopy(self.manager.state)
+            with self.assertRaises(RuntimeError):self.manager.remove_component(['autocad'])
+            self.assertEqual(self.manager.state,before);self.register.assert_not_called()
+        self.manager.remove_component(['autocad']);self.remove_bundle.assert_called();self.remove_rhino.assert_not_called()
+        self.assertEqual(set(self.manager.prepared()),{'rhino','inventor'})
+    def test_inventor_removal_does_not_touch_native_plugins_or_unrelated_preferences(self):
+        doc=self.manager.config.load();doc['model']='keep';doc['plugins']['other']={'enabled':True};self.manager.config.save(doc)
+        with patch('manager.processes',side_effect=lambda n:[{'pid':2}] if n=='Rhino.exe' else []):self.manager.remove_component(['inventor'])
+        self.remove_bundle.assert_not_called();self.remove_rhino.assert_not_called()
+        self.assertEqual(self.manager.config.load()['model'],'keep');self.assertTrue(self.manager.config.load()['plugins']['other']['enabled'])
+    def test_failed_registration_remains_disabled_and_can_retry_cleanup(self):
+        self.register.side_effect=RuntimeError('fixture')
+        with self.assertRaises(RuntimeError):self.manager.remove_component(['rhino'])
+        self.assertNotIn('rhino',Manager(self.manager.root).prepared())
+        self.register.side_effect=None;self.manager.remove_component(['rhino']);self.remove_rhino.assert_called_once()
+        self.assertNotIn('rhino',self.manager.state['component_removals'])
+    def test_regenerated_plugin_contains_only_remaining_tools_and_skills(self):
+        import shutil
+        shutil.copytree(Path(__file__).resolve().parents[1]/'plugins/cad-toolkit',self.target/'payload/plugins/cad-toolkit')
+        self.register.side_effect=lambda mapping,target,enabled:Manager.register_plugin(self.manager,mapping,target,enabled)
+        with patch('manager.find_codex',return_value='fixture-codex'),patch('manager.run',return_value=''):
+            self.manager.remove_component(['rhino'])
+        plugin=self.manager.root/'marketplace/plugins/cad-toolkit'
+        commands=json.loads((plugin/'.mcp.json').read_text())['mcpServers']
+        self.assertEqual(set(commands),{'autocad','inventor'})
+        self.assertFalse((plugin/'skills/rhino-modeling').exists())
+        self.assertTrue((plugin/'skills/inventor-modeling').exists())
+
+    def test_invalid_scope_rejected_before_changes(self):
+        for selected in ([],['rhino','inventor'],['unknown']):
+            with self.assertRaises(ValueError):self.manager.remove_component(selected)
+        self.register.assert_not_called()
+
+
 class NativeCleanupTests(unittest.TestCase):
     def test_old_receipt_does_not_hide_a_matching_new_same_version_package(self):
         with tempfile.TemporaryDirectory() as temp:
