@@ -35,6 +35,7 @@ public sealed class UpdateController : IDisposable {
     public string Activity=>"已耗時 "+Elapsed.ToString(@"mm\:ss")+((DateTime.UtcNow-lastActivity).TotalSeconds>=15?" · 最近進度回報 "+(int)(DateTime.UtcNow-lastActivity).TotalSeconds+" 秒前，可取消下載後重試":" · 更新作業進行中");
     public bool CanCancel=>Applying&&downloadStop!=null;
     public string Message {get;private set;}="尚未檢查更新";
+    public string? RequiredAction {get;private set;}
     public string? DownloadedInstaller {get;private set;}
     public event Action? Changed;
     public event Action<string>? Notify;
@@ -98,7 +99,8 @@ public sealed class UpdateController : IDisposable {
     public async Task Apply(){
         if(Busy||Available is not JsonElement release)return;
         var selected=Components(root);if(selected.Length==0){Message="請先完成 MCP 安裝。";Changed?.Invoke();return;}
-        if(ApplicationBlocker(selected) is string reason){Message=reason;Changed?.Invoke();return;}
+        RequiredAction=null;
+        if(ApplicationBlocker(selected) is string reason){RequiredAction=reason;Message=reason;Changed?.Invoke();return;}
         Busy=true;Applying=true;elapsed.Restart();lastActivity=DateTime.UtcNow;
         downloadStop=CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
         void Step(string stage){Stage=stage;Percent=null;Message=stage+"…";lastActivity=DateTime.UtcNow;Changed?.Invoke();}

@@ -19,6 +19,8 @@ public sealed class ManagerWindow : Window
     string page="overview";
     bool installedCategory=true;
     TextBlock? updateMessage,updateActivity;
+    Border? updateWarning;
+    TextBlock? updateWarningText;
     ProgressBar? updateProgress;
     bool renderedBusy,renderedVisible,renderedCancelable;
     string? renderedVersion;
@@ -48,6 +50,7 @@ public sealed class ManagerWindow : Window
         if(page!="settings")return;
         if(renderedBusy!=host.Updates.Busy||renderedVisible!=host.Updates.Visible||renderedVersion!=host.Updates.Version||renderedCancelable!=host.Updates.CanCancel){Render();return;}
         if(updateMessage!=null)updateMessage.Text=host.Updates.Message;
+        UpdateWarning();
         if(updateActivity!=null)updateActivity.Text=host.Updates.Activity;
         if(updateProgress!=null){updateProgress.IsIndeterminate=!host.Updates.Percent.HasValue;updateProgress.Value=host.Updates.Percent??0;}
     }
@@ -58,7 +61,7 @@ public sealed class ManagerWindow : Window
         body.Children.Add(new Border{Child=panel,BorderBrush=Line,BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(7),Padding=new Thickness(18),Margin=new Thickness(0,14,0,0)});return panel;
     }
     void Render() {
-        updateMessage=null;updateActivity=null;updateProgress=null;renderedBusy=host.Updates.Busy;renderedVisible=host.Updates.Visible;renderedVersion=host.Updates.Version;renderedCancelable=host.Updates.CanCancel;
+        updateMessage=null;updateActivity=null;updateProgress=null;updateWarning=null;updateWarningText=null;renderedBusy=host.Updates.Busy;renderedVisible=host.Updates.Visible;renderedVersion=host.Updates.Version;renderedCancelable=host.Updates.CanCancel;
         body.Children.Clear();nav.Children.Clear();footer.Text=host.Message;
         foreach(var item in new[]{("overview","MCP 狀態"),("mcps","MCP 管理"),("history","最近指令"),("settings","設定與更新")}){
             string target=item.Item1;var button=Button(item.Item2,()=>Navigate(target));button.HorizontalContentAlignment=HorizontalAlignment.Left;button.Padding=new Thickness(14,11,14,11);button.Margin=new Thickness(0,3,0,3);button.BorderThickness=new Thickness(0);button.Background=page==target?Color("#E3ECFF"):Brushes.Transparent;button.Foreground=page==target?Blue:Muted;nav.Children.Add(button);
@@ -133,6 +136,13 @@ public sealed class ManagerWindow : Window
     }
     void ToolkitUpdates() {
         var updates=Card("MCP Toolkit",host.Version+(host.Version.Contains('-')?" · Beta 測試版":"")+" · Windows x64");updateMessage=Text(host.Updates.Message,12,color:Muted);updates.Children.Add(updateMessage);
+        var warningBody=new StackPanel();var warningTitle=Text("請先儲存並關閉軟體，再更新",18,true,color:Color("#783B06"));warningTitle.FontWeight=FontWeights.Bold;warningBody.Children.Add(warningTitle);
+        updateWarningText=Text("",15,color:Color("#783B06"));updateWarningText.LineHeight=25;warningBody.Children.Add(updateWarningText);
+        var warningLayout=new DockPanel();var warningIcon=Text("\uE7BA",25,color:Color("#985000"));warningIcon.FontFamily=new FontFamily("Segoe MDL2 Assets");warningIcon.Margin=new Thickness(0,2,14,0);DockPanel.SetDock(warningIcon,Dock.Left);warningLayout.Children.Add(warningIcon);warningLayout.Children.Add(warningBody);
+        updateWarning=new Border{Child=warningLayout,Background=Color("#FFF4CE"),BorderBrush=Color("#C88C20"),BorderThickness=new Thickness(4,1,1,1),CornerRadius=new CornerRadius(6),Padding=new Thickness(18),Margin=new Thickness(0,14,0,14),Visibility=Visibility.Collapsed};
+        System.Windows.Automation.AutomationProperties.SetAutomationId(updateWarning,"update-required-action");
+        System.Windows.Automation.AutomationProperties.SetLiveSetting(updateWarning,System.Windows.Automation.AutomationLiveSetting.Assertive);
+        updates.Children.Add(updateWarning);UpdateWarning();
         if(host.Updates.Applying){
             updateProgress=new ProgressBar{Height=6,Minimum=0,Maximum=100,IsIndeterminate=!host.Updates.Percent.HasValue,Value=host.Updates.Percent??0,Margin=new Thickness(0,12,0,8)};updates.Children.Add(updateProgress);
             updateActivity=Text(host.Updates.Activity,12,color:Muted);updates.Children.Add(updateActivity);
@@ -147,6 +157,15 @@ public sealed class ManagerWindow : Window
             var update=Button(host.Updates.Busy?"正在下載更新…":"立即更新（保留設定）",async()=>await host.Updates.Apply(),true);update.IsEnabled=!host.Updates.Busy;updates.Children.Add(update);
             var actions=new WrapPanel();actions.Children.Add(Button("稍後提醒",host.Updates.Later));actions.Children.Add(Button("略過此版本",host.Updates.Skip));updates.Children.Add(actions);
         }
+    }
+    void UpdateWarning(){
+        if(updateWarning==null||updateWarningText==null)return;
+        bool visible=!string.IsNullOrEmpty(host.Updates.RequiredAction);
+        bool appeared=visible&&updateWarning.Visibility!=Visibility.Visible;
+        updateWarningText.Text=host.Updates.RequiredAction??"";
+        updateWarning.Visibility=visible?Visibility.Visible:Visibility.Collapsed;
+        if(updateMessage!=null)updateMessage.Visibility=visible?Visibility.Collapsed:Visibility.Visible;
+        if(appeared)Dispatcher.BeginInvoke(()=>{if(updateWarning?.IsVisible==true)updateWarning.BringIntoView();},DispatcherPriority.Loaded);
     }
     void McpManagement(){
         Header("MCP 管理","依需要安裝與管理 MCP。只有已安裝項目會出現在「MCP 狀態」。");
