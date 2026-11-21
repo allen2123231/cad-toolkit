@@ -71,13 +71,16 @@ def identity(frame):
 
 def failed(code):
     messages = {
-        'RECOVERY_REQUIRED':'上一批指令結果待確認。請在 Toolkit「中斷恢復」重新開啟並檢查圖面；確認後重新提出新操作。此次要求未排入執行，也不會自動重送上一批。',
+        'RECOVERY_REQUIRED':'上一批指令結果待確認。請在 Toolkit「中斷恢復」按「檢查並恢復連線」，檢查圖面並確認後重新提出新操作。此次要求未排入執行，也不會自動重送上一批。',
         'CAD_CLOSED':'AutoCAD／LT 已關閉。可使用 open_application 重新開啟；未傳送繪圖指令。',
         'SELECT_TARGET':'請保留唯一且可見的 AutoCAD／LT 目標視窗，再重新提出操作。',
         'CAD_BUSY':'AutoCAD／LT 正忙碌或有對話框。此次操作未傳送，請完成後重新提出。',
         'BRIDGE_UPDATE_REQUIRED':'AutoCAD／LT 外掛需要更新。請在 Toolkit 修復並儲存、重新開啟軟體，不需要輸入載入指令。',
         'DESKTOP_BUSY_OTHER_CLIENT':'另一個要求正在使用 AutoCAD 通道。此次要求未排入執行，稍後請重新提出。',
         'READ_FAILED':'唯讀查詢未完成，沒有解除修改暫停，也沒有重送操作。',
+        'RECOVERY_TARGET_CHANGED':'視窗或圖面已變更，請回到中斷時的圖面後重新檢查；無法確認時請儲存並重開 CAD。',
+        'RECOVERY_MAIL_CONFLICT':'有其他待確認要求，已停止恢復；請保留紀錄供檢查，不會執行或重送。',
+        'RECOVERY_PROOF_INVALID':'外掛未能確認舊指令已隔離，修改仍暫停。請稍後重新檢查，或儲存並重開 CAD。',
     }
     return dict(ok=False, code=code, error=code+': '+messages.get(code, code), retry_automatically=False)
 
@@ -95,7 +98,7 @@ class Channel:
         frame=frames[0]
         try: context=self.context(frame)
         except (RuntimeError, ValueError, OSError): return frame, None, 'BRIDGE_UPDATE_REQUIRED'
-        if context.get('guard_protocol') not in (2,3) or not context.get('document',{}).get('id'):
+        if context.get('guard_protocol') not in (2,3,4) or not context.get('document',{}).get('id'):
             return frame, context, 'BRIDGE_UPDATE_REQUIRED'
         if context['document'].get('busy') or context.get('modal'):
             return frame, context, 'CAD_BUSY'
@@ -103,7 +106,7 @@ class Channel:
 
     def _token(self, frame, context):
         if not frame or not context: return ''
-        value=[identity(frame),context.get('document',{}).get('id')]
+        value=[identity(frame),context.get('document',{}).get('id'),context.get('document',{}).get('switch_serial',0)]
         return hashlib.sha256(json.dumps(value,sort_keys=True).encode()).hexdigest()
 
     def _id(self, value):
@@ -182,13 +185,21 @@ class Channel:
     def _state(self):
         record=self._reconcile()
         frame,context,error=self.target()
+        token=self._token(frame,context)
+        proof=(record or {}).get('in_place_verified',{})
+        revoked=read(self.ipc/('toolkit-revoked-'+self._id(record)+'.json'),{}) if record and proof else {}
+        same_verified=bool(record and not error and (context or {}).get('guard_protocol')==4
+                           and proof.get('target_token')==token and revoked.get('request_id')==record['request_id']
+                           and revoked.get('probe_id')==proof.get('probe_id'))
+        reopened=bool(record and record.get('closed_observed') and not error and frame
+                      and float(frame['processStart'])>float(record.get('ts',float('inf'))))
         return dict(recovery=record,current_frame=identity(frame),current_document=(context or {}).get('document'),
-                    read_available=bool(not error and (context or {}).get('guard_protocol')==3),
+                    read_available=bool(not error and (context or {}).get('guard_protocol') in (3,4)),
                     write_available=bool(not error and not record),
+                    recovery_mode='in_place' if same_verified else 'reopened' if reopened else 'unverified',
                     access_scope='toolkit_managed_only',
-                    target_token=self._token(frame,context),code=error or ('RECOVERY_REQUIRED' if record else 'READY'),
-                    can_confirm=bool(record and record.get('closed_observed') and not error and frame
-                                     and float(frame['processStart'])>float(record.get('ts',float('inf')))
+                    target_token=token,code=error or ('RECOVERY_REQUIRED' if record else 'READY'),
+                    can_confirm=bool(record and (same_verified or reopened)
                                      and not self.pending.exists() and not list(self.ipc.glob('autocad_mcp_cmd_*.json'))))
 
     def state(self):
@@ -209,11 +220,48 @@ class Channel:
         with lease(self.ipc):
             state=self._state(); record=state['recovery']
             if not record or record['request_id']!=request_id or not state['can_confirm'] or not target_token or state['target_token']!=target_token:
-                raise ValueError('請先重新開啟 CAD、完成載入並檢查目前圖面。視窗或文件再次變更時需重新確認。')
+                raise ValueError('請先按「檢查並恢復連線」或重新開啟 CAD，再檢查目前圖面。視窗或文件再次變更時需重新檢查。')
             record.update(stage='confirmed_no_replay',confirmed_at=time.time(),confirmed_target=state['current_frame'],confirmed_document=state['current_document'])
             self._journal(record)
             self.recovery.unlink()
             return dict(ok=True,message='已確認目前圖面。請回對話重新提出後續操作；先前指令不會自動重送。')
+
+    async def prepare_recovery(self,request_id,target_token,post,timeout=6):
+        try:
+            with lease(self.ipc):
+                state=self._state();record=state.get('recovery')
+                frame,context,error=self.target()
+                if not record or record['request_id']!=request_id or error or state['target_token']!=target_token:
+                    return failed(error or 'RECOVERY_TARGET_CHANGED')
+                if context.get('guard_protocol')!=4:return failed('BRIDGE_UPDATE_REQUIRED')
+                if record.get('frame')!=identity(frame) or record.get('document',{}).get('id')!=context['document']['id']:
+                    return failed('RECOVERY_TARGET_CHANGED')
+                pending=read(self.pending)
+                if pending and pending.get('request_id')!=request_id:return failed('RECOVERY_MAIL_CONFLICT')
+                if any(p.name!=f'autocad_mcp_cmd_{request_id}.json' for p in self.ipc.glob('autocad_mcp_cmd_*.json')):
+                    return failed('RECOVERY_MAIL_CONFLICT')
+                # A native acknowledgement is mandatory: passive idle status
+                # cannot prove a delayed notifier is fenced or old work ended.
+                for stale in self.ipc.glob('autocad_mcp_recover_*.json'):
+                    folder=self.ipc/'toolkit-interrupted-reads';folder.mkdir(exist_ok=True)
+                    os.replace(stale,folder/(uuid.uuid4().hex+'-'+stale.name))
+                result=await self._read_dispatch('toolkit-recover',{'fence_request_id':request_id},post,timeout,frame,context,access='recover')
+                payload=result.get('payload') or {}
+                revoked=read(self.ipc/f'toolkit-revoked-{request_id}.json',{})
+                now_frame,now_context,now_error=self.target()
+                probe=payload.get('probe_id')
+                if (not result.get('ok') or payload.get('fenced_request_id')!=request_id or not probe or probe!=result.get('request_id')
+                    or payload.get('document_id')!=context['document']['id']
+                    or revoked.get('request_id')!=request_id or revoked.get('probe_id')!=probe
+                    or now_error or self._token(now_frame,now_context)!=target_token):
+                    return result if not result.get('ok') else failed('RECOVERY_PROOF_INVALID')
+                self._quarantine(record)
+                record.update(in_place_verified=dict(target_token=target_token,probe_id=probe,at=time.time()))
+                atomic(self.recovery,record);self._journal(record)
+                return dict(ok=True,message='原視窗已重新連線，舊指令已隔離。請檢查圖面並勾選確認；尚未解除修改暫停。')
+        except RuntimeError as exc:
+            if str(exc)=='DESKTOP_BUSY_OTHER_CLIENT':return failed(str(exc))
+            raise
 
     async def dispatch(self, command, params, post, timeout=8):
         try:
@@ -224,7 +272,7 @@ class Channel:
                 frame,context,error=self.target()
                 if error:return failed(error)
                 if readonly:
-                    if context.get('guard_protocol')!=3:return failed('BRIDGE_UPDATE_REQUIRED')
+                    if context.get('guard_protocol') not in (3,4):return failed('BRIDGE_UPDATE_REQUIRED')
                     # An earlier reader can die without its finally block. The
                     # lease proves no managed request is still using these files.
                     # Late read notifications have no path into the write inbox.
@@ -290,14 +338,14 @@ class Channel:
             if str(exc)=='DESKTOP_BUSY_OTHER_CLIENT':return failed(str(exc))
             raise
 
-    async def _read_dispatch(self,command,params,post,timeout,frame,context):
+    async def _read_dispatch(self,command,params,post,timeout,frame,context,access='read'):
         key=uuid.uuid4().hex
-        request=dict(request_id=key,command=command,params=params,toolkit_protocol=3,
+        request=dict(request_id=key,command=command,params=params,toolkit_protocol=4 if access=='recover' else 3,
                      toolkit_hwnd=frame['hwnd'],toolkit_frame=identity(frame),
-                     toolkit_document=context['document']['id'],access='read',ts=time.time())
-        mail=self.ipc/f'autocad_mcp_read_{key}.json'
+                     toolkit_document=context['document']['id'],access=access,ts=time.time())
+        mail=self.ipc/f'autocad_mcp_{access}_{key}.json'
         result_path=self.ipc/f'autocad_mcp_result_{key}.json'
-        record=dict(request_id=key,command=command,access='read',frame=identity(frame),ts=request['ts'],stage='prepared')
+        record=dict(request_id=key,command=command,access=access,frame=identity(frame),ts=request['ts'],stage='prepared')
         self._journal(record);atomic(mail,request)
         notices=queue.Queue()
         def notify():

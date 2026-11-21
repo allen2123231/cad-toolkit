@@ -11,7 +11,7 @@ from cad_launch import ensure_started, wait_for_application, tools as applicatio
 
 
 def recovery_tool():
-    return dict(name='get_recovery_state',description='Read AutoCAD/LT interruption and native bridge state without using the CAD command mailbox. Never retries work. Recovery requires the user to reopen CAD and confirm the drawing in Toolkit; after confirmation explicitly send new operations.',
+    return dict(name='get_recovery_state',description='Read AutoCAD/LT interruption and native bridge state without using the CAD command mailbox. Never retries work. In Toolkit, use Check and restore connection to fence old work in the original window, then explicitly inspect and confirm the drawing. Reopen CAD only when native recovery cannot be verified; after confirmation explicitly send new operations.',
                 inputSchema={'type':'object','properties':{},'additionalProperties':False},annotations={'readOnlyHint':True,'openWorldHint':False})
 
 

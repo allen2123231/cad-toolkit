@@ -86,7 +86,7 @@ async def run(args):
             if len(current)==1:
                 try:
                     context=read_context(root,current[0])
-                    if context.get('guard_protocol')==3 and not context['document']['busy']:
+                    if context.get('guard_protocol')==4 and not context['document']['busy']:
                         owned_frame=current[0]
                         await asyncio.sleep(2)
                         return
@@ -103,13 +103,13 @@ async def run(args):
             # object or frame scanner. This mode requires no other CAD windows.
             from autocad_session import guarded_backend
             sender=guarded_backend(object,None)();sender._toolkit_frame=current[0]
-            sender._post_text('(c:mcp-read)' if request.get('access')=='read' else '(c:mcp-dispatch)')
+            sender._post_text({'read':'(c:mcp-read)','recover':'(c:mcp-recover)'}.get(request.get('access'),'(c:mcp-dispatch)'))
             return
         u,_=window_scan.api()
         child=u.FindWindowExW(request['toolkit_hwnd'],None,'MDIClient',None)
         if not child:raise RuntimeError('Owned MDIClient missing')
         u.PostMessageW.argtypes=[W.HWND,W.UINT,W.WPARAM,W.LPARAM];u.PostMessageW.restype=W.BOOL
-        for char in ('(c:mcp-read)\r' if request.get('access')=='read' else '(c:mcp-dispatch)\r'):
+        for char in ({'read':'(c:mcp-read)\r','recover':'(c:mcp-recover)\r'}.get(request.get('access'),'(c:mcp-dispatch)\r')):
             if not u.PostMessageW(child,0x102,ord(char),0):raise ctypes.WinError(ctypes.get_last_error())
     async def call(command,params=None,timeout=10):
         try:result=await channel.dispatch(command,params or {},post,timeout)
@@ -182,12 +182,22 @@ async def run(args):
         denied=await channel.dispatch('entity-count',{},forged_read,3)
         check('native read whitelist rejects forged mutation',not denied.get('ok') and denied.get('error')=='READ_OPERATION_NOT_ALLOWED',result=denied)
         check('new batch after late receipt still blocked',(await call('create-circle',{'cx':80,'cy':0,'radius':5})).get('code')=='RECOVERY_REQUIRED')
-        stop_owned();await start(saved)
+        old_pid=owned.pid;before=channel.state()
+        result=await channel.prepare_recovery(before['recovery']['request_id'],before['target_token'],post,5)
         recovered=channel.state()
-        check('second reopen offers explicit recovery',recovered['can_confirm'])
+        check('native in-place fence offers confirmation without closing CAD',result.get('ok') and recovered['can_confirm'] and owned.pid==old_pid and recovered['recovery_mode']=='in_place',result=result)
+        old_key=recovered['recovery']['request_id']
+        check('in-place preparation alone still blocks mutation',(await call('create-circle',{'cx':80,'cy':0,'radius':5})).get('code')=='RECOVERY_REQUIRED')
         channel.confirm(recovered['recovery']['request_id'],recovered['target_token'])
         count=await call('entity-count')
         check('timeout and blocked batches never replayed',count.get('payload',{}).get('count')==2,result=count)
+        old_mail=dict(request_id=old_key,command='create-circle',params={'cx':999,'cy':0,'radius':99},toolkit_protocol=2,
+                      toolkit_hwnd=owned_frame['hwnd'],toolkit_document=channel.state()['current_document']['id'])
+        atomic(root/'ipc'/f'autocad_mcp_cmd_{old_key}.json',old_mail);post(old_mail)
+        await asyncio.sleep(1)
+        rejection=json.loads((root/'ipc'/f'autocad_mcp_result_{old_key}.json').read_text(encoding='utf-8-sig'))
+        check('revoked old request cannot execute after confirmation',not rejection.get('ok') and rejection.get('error')=='REVOKED_REQUEST_NOT_EXECUTED',result=rejection)
+        check('revocation left geometry unchanged',(await call('entity-count')).get('payload',{}).get('count')==2)
         delayed=[]
         def delayed_notification(request):
             delayed.append(request)

@@ -22,6 +22,9 @@
         (progn
           (setq result-file (strcat *mcp-ipc-dir* "autocad_mcp_result_" request-id ".json"))
           (cond
+            ((findfile (strcat *mcp-ipc-dir* "toolkit-revoked-" request-id ".json"))
+              (vl-file-delete file)
+              (mcp-write-result result-file request-id nil nil "REVOKED_REQUEST_NOT_EXECUTED"))
             ((findfile (strcat *mcp-ipc-dir* "toolkit-recovery.json"))
               (vl-file-delete file)
               (mcp-write-result result-file request-id nil nil "RECOVERY_BARRIER_NOT_EXECUTED"))
@@ -54,6 +57,49 @@
                   (mcp-toolkit-phase-write request-id "completed")
                   (setq *mcp-toolkit-phase* "idle")
                   (vl-catch-all-apply 'mcp-toolkit-context-write nil)))))))))
+  (princ))
+
+;;; Native recovery is a maintenance entry, never a dispatcher for drawing code.
+(defun mcp-toolkit-valid-key (key / i valid char)
+  (setq valid (and key (> (strlen key) 0) (<= (strlen key) 80)) i 1)
+  (while (and valid (<= i (strlen key)))
+    (setq char (ascii (substr key i 1)))
+    (if (not (or (and (>= char 48) (<= char 57)) (and (>= char 65) (<= char 90))
+                 (and (>= char 97) (<= char 122)) (= char 45) (= char 95))) (setq valid nil))
+    (setq i (1+ i)))
+  valid)
+(defun c:mcp-recover (/ files file text request-id old-key result-file recovery revoked fp payload)
+  (setq files (vl-directory-files *mcp-ipc-dir* "autocad_mcp_recover_*.json" 1))
+  (if (= (length files) 1)
+    (progn
+      (setq file (strcat *mcp-ipc-dir* (car files)) text (mcp-read-file-lines file)
+            request-id (mcp-json-get-string text "request_id") old-key (mcp-json-get-string text "fence_request_id"))
+      (if (and (mcp-toolkit-valid-key request-id) (mcp-toolkit-valid-key old-key))
+        (progn
+          (setq result-file (strcat *mcp-ipc-dir* "autocad_mcp_result_" request-id ".json")
+                recovery (strcat *mcp-ipc-dir* "toolkit-recovery.json"))
+          (vl-file-delete file)
+          (cond
+            ((or (not (findfile recovery)) (/= old-key (mcp-json-get-string (mcp-read-file-lines recovery) "request_id")))
+              (mcp-write-result result-file request-id nil nil "RECOVERY_TARGET_CHANGED"))
+            ((or (/= (mcp-json-get-number text "toolkit_protocol") 4)
+                 (/= (mcp-json-get-number text "toolkit_hwnd") (vla-get-HWND (vlax-get-acad-object)))
+                 (/= (mcp-json-get-string text "toolkit_document") *mcp-toolkit-document-id*))
+              (mcp-write-result result-file request-id nil nil "TARGET_DOCUMENT_CHANGED_NOT_EXECUTED"))
+            ((or *mcp-toolkit-native-busy* (> (getvar "CMDACTIVE") 0))
+              (mcp-write-result result-file request-id nil nil "CAD_BUSY_NOT_EXECUTED"))
+            (T
+              (setq revoked (strcat *mcp-ipc-dir* "toolkit-revoked-" old-key ".json")
+                    payload (strcat "{\"request_id\":\"" old-key "\",\"probe_id\":\"" request-id "\"}"))
+              (if (setq fp (open (strcat revoked ".tmp") "w"))
+                (progn
+                  (write-line payload fp) (close fp)
+                  (if (findfile revoked) (vl-file-delete revoked))
+                  (if (vl-file-rename (strcat revoked ".tmp") revoked)
+                    (mcp-write-result result-file request-id T
+                      (strcat "{\"fenced_request_id\":\"" old-key "\",\"document_id\":\"" *mcp-toolkit-document-id* "\",\"probe_id\":\"" request-id "\"}") nil)
+                    (mcp-write-result result-file request-id nil nil "RECOVERY_FENCE_WRITE_FAILED")))
+                (mcp-write-result result-file request-id nil nil "RECOVERY_FENCE_WRITE_FAILED"))))))))
   (princ))
 (princ)
 
