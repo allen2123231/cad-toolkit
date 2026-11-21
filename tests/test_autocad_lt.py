@@ -94,6 +94,10 @@ class LTTests(unittest.TestCase):
         manager=Manager.__new__(Manager);manager.root=self.root;manager.prepare_autocad(target)
         prepared=(target/'autocad/mcp_dispatch.lsp').read_text(encoding='utf-8')
         self.assertIn('mcp-toolkit-context-write',prepared);self.assertIn(':vlr-documentBecameCurrent',prepared);self.assertTrue((self.root/'ipc').is_dir())
+        self.assertIn('RECOVERY_BARRIER_NOT_EXECUTED',prepared)
+        self.assertIn('TARGET_DOCUMENT_CHANGED_NOT_EXECUTED',prepared)
+        self.assertIn('"waiting_input"',prepared)
+        self.assertGreater(prepared.rfind('(defun c:mcp-dispatch'),prepared.find('(defun mcp-toolkit-context-write'))
         receipt=install_bundle(target,self.root/'appdata');bundle=Path(receipt['bundle'])
         self.assertEqual((bundle/'Contents/mcp_dispatch.lsp').read_text(encoding='utf-8'),prepared)
         self.assertIn('PerDocument="True"',(bundle/'PackageContents.xml').read_text())
@@ -119,9 +123,10 @@ class LTTests(unittest.TestCase):
         from autocad_session import guarded_backend
         class Base:
             def _post_text(self,text):self.sent=text
-        backend=guarded_backend(Base,lambda **kw:kw)();backend._toolkit_frame={'product':'AutoCAD LT','kind':'autocad','pid':123,'hwnd':42,'processStart':1}
-        with patch.dict(sys.modules,{'pythoncom':None,'win32com.client':None}),patch('window_scan.scan',return_value=[backend._toolkit_frame]):backend._post_text('(c:mcp-dispatch)')
-        self.assertEqual(backend.sent,'(c:mcp-dispatch)')
+        backend=guarded_backend(Base,lambda **kw:kw)();backend._toolkit_frame={'product':'AutoCAD LT','kind':'autocad','pid':123,'hwnd':42,'processStart':1};backend._hwnd=42;backend._command_hwnd=43
+        api=Mock();api.IsChild.return_value=True;api.PostMessageW.return_value=True
+        with patch.dict(sys.modules,{'pythoncom':None,'win32com.client':None}),patch('ctypes.WinDLL',return_value=api),patch('window_scan.scan',return_value=[backend._toolkit_frame]):backend._post_text('(c:mcp-dispatch)')
+        self.assertEqual(api.PostMessageW.call_count,len('(c:mcp-dispatch)\r'))
 
     def test_restarted_window_is_blocked_before_any_ipc_operation(self):
         import asyncio,types
@@ -130,6 +135,10 @@ class LTTests(unittest.TestCase):
             async def _dispatch(self,*args,**kwargs):raise AssertionError('must not dispatch')
         result=lambda **kw:types.SimpleNamespace(**kw)
         backend=guarded_backend(Base,result)();backend._toolkit_frame={'pid':123,'hwnd':42,'processStart':1};backend._hwnd=42
+        class RaceChannel:
+            async def dispatch(self,command,params,post,timeout):
+                post({'toolkit_frame':{'pid':123,'hwnd':42,'processStart':1},'toolkit_hwnd':42})
+        backend._toolkit_channel=RaceChannel()
         frame={'kind':'autocad','pid':123,'hwnd':42,'processStart':2,'visible':True}
         with patch('window_scan.scan',return_value=[frame]):value=asyncio.run(backend._dispatch('ping',{}))
         self.assertFalse(value.ok)

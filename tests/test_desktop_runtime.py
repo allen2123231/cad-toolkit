@@ -88,6 +88,8 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(Path(server["command"]).name, "python.exe")
         self.assertEqual(server["args"][-2:], ["--", child])
         self.assertTrue((dest / "tools/relay.py").exists())
+        for helper in ('autocad_channel.py','autocad_context.py'):
+            self.assertTrue((dest/'tools'/helper).is_file(),helper+' must ship with the relay')
 
     def test_external_and_managed_configuration_are_distinguished(self):
         config = self.root / "config.toml"

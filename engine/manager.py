@@ -82,7 +82,7 @@ def plugin_files(destination, template, commands, version, env, history_root=Non
         if history_root:
             tools_dir = destination / "tools"
             tools_dir.mkdir(exist_ok=True)
-            for helper in ("relay.py", "history.py", "rhino_instances.py", "rhino_router.py", "window_store.py", "window_scan.py", "probe.py", "cad_launch.py","cad_products.py"):
+            for helper in ("relay.py", "history.py", "rhino_instances.py", "rhino_router.py", "window_store.py", "window_scan.py", "probe.py", "cad_launch.py","cad_products.py","autocad_channel.py","autocad_context.py"):
                 shutil.copy2(Path(__file__).with_name(helper), tools_dir / helper)
             python = Path(cmd[0]).with_name("python.exe")
             cmd = [str(python), "-X", "utf8", str(tools_dir / "relay.py"), "--root", str(history_root), "--component", name, "--", *cmd]
@@ -182,6 +182,9 @@ class Manager:
         context=Path(__file__).with_name('autocad_context.lsp')
         if context.is_file():
             text+='\n'+context.read_text(encoding='utf-8')
+        guard=Path(__file__).with_name('autocad_guard.lsp')
+        if not guard.is_file():raise RuntimeError('AutoCAD 安裝來源缺少身分檢查外掛。')
+        text+='\n'+guard.read_text(encoding='utf-8')
         (cad_dir/'mcp_dispatch.lsp').write_text(text,encoding='utf-8')
         shutil.copytree(cad_dir,target/'envs/autocad/Lib/lisp-code',dirs_exist_ok=True)
 

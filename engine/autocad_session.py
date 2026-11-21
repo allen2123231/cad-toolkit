@@ -14,7 +14,18 @@ def guarded_backend(base,CommandResult):
             current=[w for w in window_scan.scan() if w['kind']=='autocad' and w.get('visible',True)]
             if len(current)!=1 or any(frame[k]!=current[0][k] for k in ('pid','hwnd','processStart')):raise RuntimeError('AutoCAD／LT 目標已變更，此次指令未傳送。')
             if frame.get('product')=='AutoCAD LT':
-                return super()._post_text(text)
+                # Validate the child still belongs to the exact main frame. A
+                # failed PostMessage is an interruption, never a successful send.
+                import ctypes
+                from ctypes import wintypes as W
+                u=ctypes.WinDLL('user32',use_last_error=True)
+                u.PostMessageW.argtypes=[W.HWND,W.UINT,W.WPARAM,W.LPARAM];u.PostMessageW.restype=W.BOOL
+                u.IsChild.argtypes=[W.HWND,W.HWND];u.IsChild.restype=W.BOOL
+                target=self._command_hwnd or self._hwnd
+                if target!=self._hwnd and not u.IsChild(self._hwnd,target):raise RuntimeError('AutoCAD LT 收件視窗已變更。')
+                for ch in text+'\r':
+                    if not u.PostMessageW(target,0x0102,ord(ch),0):raise ctypes.WinError(ctypes.get_last_error())
+                return
             # Full AutoCAD supports native automation. LT never takes this branch.
             import pythoncom,win32com.client
             pythoncom.CoInitialize()
@@ -25,29 +36,55 @@ def guarded_backend(base,CommandResult):
                 app.ActiveDocument.SendCommand(text+'\n')
             finally:pythoncom.CoUninitialize()
         async def initialize(self):
-            frames=[w for w in window_scan.scan() if w['kind']=='autocad' and w.get('visible',True)]
-            self._toolkit_frame=frames[0] if len(frames)==1 else None
-            result=await super().initialize()
-            if not result.ok and ('APPLOAD' in (result.error or '') or 'load it by hand' in (result.error or '')):
-                return CommandResult(ok=False,error='AutoCAD／LT 自動連線尚未完成。請在 Toolkit 按「設定／修復」，自行儲存並重新開啟軟體，再重新檢查；不需要輸入連線指令。')
-            return result
-        async def _dispatch(self,command,params,timeout=None):
-            frames=[w for w in window_scan.scan() if w['kind']=='autocad' and w.get('visible',True)]
-            initial=getattr(self,'_toolkit_frame',None)
-            if not initial or len(frames)!=1 or any(initial[k]!=frames[0][k] for k in ('pid','hwnd','processStart')):
-                return CommandResult(ok=False,error='AutoCAD／LT 視窗已變更或有多個候選視窗，已停止此次操作。請保留唯一目標後重新連線。')
-            import win32gui
-            if not win32gui.IsWindowEnabled(self._hwnd):
-                return CommandResult(ok=False,error='AutoCAD／LT 正在顯示對話框，或尚未開啟可操作的圖面；請完成後重新檢查。')
-            if initial.get('product')=='AutoCAD LT':
-                import os
-                from pathlib import Path
-                from autocad_context import read_context
+            # Initialization must not replay a ping or hide recovery behind a
+            # cached failed backend. Native loading belongs to the owned bundle.
+            self._channel()
+            return await self.status()
+
+        def _attach(self,frame):
+            changed=getattr(self,'_toolkit_frame',None)!=frame
+            self._toolkit_frame=frame;self._hwnd=int(frame['hwnd'])
+            self._command_hwnd=self._find_command_line_hwnd()
+            if changed or self._screenshot_provider is None:
                 try:
-                    doc=read_context(Path(os.environ['AUTOCAD_MCP_IPC_DIR']).parent,initial)['document']
-                    if doc['busy']:return CommandResult(ok=False,error='AutoCAD LT 有進行中的指令，請完成後重試；不會自動取消。')
-                except (RuntimeError,KeyError) as exc:return CommandResult(ok=False,error=str(exc))
-            return await super()._dispatch(command,params,timeout=timeout)
+                    from autocad_mcp.screenshot import Win32ScreenshotProvider
+                    self._screenshot_provider=Win32ScreenshotProvider(self._hwnd)
+                except Exception:self._screenshot_provider=None
+
+        def _channel(self):
+            if not hasattr(self,'_toolkit_channel'):
+                from autocad_channel import local_channel
+                self._toolkit_channel=local_channel(self._ipc_dir.parent)
+            return self._toolkit_channel
+
+        async def status(self):
+            state=self._channel().state()
+            frames=[w for w in window_scan.scan() if w['kind']=='autocad' and w.get('visible',True)]
+            if len(frames)==1:self._attach(frames[0])
+            return CommandResult(ok=True,payload={'backend':'file_ipc','hwnd':(state.get('current_frame') or {}).get('hwnd'),
+                                                  'recovery':state,'ready':state['code']=='READY',
+                                                  'capabilities':self.capabilities.__dict__})
+
+        async def get_screenshot(self):
+            from autocad_channel import identity
+            frames=[w for w in window_scan.scan() if w['kind']=='autocad' and w.get('visible',True)]
+            if len(frames)!=1 or identity(frames[0])!=identity(getattr(self,'_toolkit_frame',None)):
+                return CommandResult(ok=False,error='AutoCAD 截圖目標已變更，請重新檢查視窗。')
+            return await super().get_screenshot()
+
+        async def _dispatch(self,command,params,timeout=None):
+            import os
+            from autocad_channel import identity
+            def post(request):
+                frames=[w for w in window_scan.scan() if w['kind']=='autocad' and w.get('visible',True)]
+                if len(frames)!=1 or identity(frames[0])!=request['toolkit_frame']:raise RuntimeError('AutoCAD 目標已變更。')
+                self._attach(frames[0])
+                self._type_dispatch_trigger()
+            try:
+                value=await self._channel().dispatch(command,params,post,timeout=timeout if timeout is not None else float(os.environ.get('AUTOCAD_MCP_IPC_TIMEOUT','8')))
+                return CommandResult(ok=value.get('ok',False),payload=value.get('payload'),error=value.get('error'))
+            except (RuntimeError,OSError,ValueError) as exc:
+                return CommandResult(ok=False,error='此次指令已停止；請查看 Toolkit 中斷恢復狀態。'+str(exc))
     return ManagedBackend
 
 def main():

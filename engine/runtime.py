@@ -173,6 +173,15 @@ def row(kind, source, pids, root, manifest, choices, frames=None):
             from_version = tuple(int(x) for x in info["version"].split(".") if x.isdigit())
             to_version = tuple(int(x) for x in info["expected_version"].split(".") if x.isdigit())
             info["update"] = "compatible" if info["version"] == info["expected_version"] else "available" if from_version < to_version else "different"
+        if kind=='autocad':
+            from autocad_channel import local_channel
+            recovery=local_channel(root).state()
+            if recovery.get('recovery'):
+                info.update(code='RECOVERY_REQUIRED',recovery=recovery,message='上一批指令結果待確認。請開啟「中斷恢復」；確認後重新提出操作，不會自動補送。')
+                return info
+            if recovery.get('code')=='DESKTOP_BUSY_OTHER_CLIENT':
+                info.update(code='BUSY',message='另一個要求正在使用通道；背景檢查不會插入繪圖指令。')
+                return info
         if not pids:
             if kind=='autocad':
                 from cad_launch import executable
@@ -234,7 +243,7 @@ def row(kind, source, pids, root, manifest, choices, frames=None):
         if not source.get("enabled") and info["code"] == "READY":
             info["code"] = "NOT_ENABLED"
     except Exception as exc:
-        info["code"] = "LICENSING_ERROR" if licensing_error(root, kind) else "BRIDGE_NOT_CONNECTED"
+        info["code"] = "VERSION_MISMATCH" if kind=='autocad' and 'BRIDGE_UPDATE_REQUIRED' in str(exc) else "LICENSING_ERROR" if licensing_error(root, kind) else "BRIDGE_NOT_CONNECTED"
         info["message"] = str(exc)[-800:]
     return info
 
@@ -279,7 +288,7 @@ def snapshot(root, config, manifest):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["snapshot", "row", "clear-history", "windows", "rename-window", "locate-window", "bind-window", "cancel-binding", "release-binding", "confirm-document", "clear-window-titles", "open-cad", "application-state"])
+    parser.add_argument("action", choices=["snapshot", "row", "clear-history", "windows", "rename-window", "locate-window", "bind-window", "cancel-binding", "release-binding", "confirm-document", "clear-window-titles", "open-cad", "application-state", "confirm-autocad-recovery"])
     parser.add_argument("--root", required=True)
     parser.add_argument("--config", default=str(Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml"))
     parser.add_argument("--manifest")
@@ -291,6 +300,7 @@ def main():
     parser.add_argument("--name")
     parser.add_argument("--serial", type=int)
     parser.add_argument("--epoch", type=int)
+    parser.add_argument("--target-token")
     parser.add_argument("--wait-seconds",type=int,default=0)
     args = parser.parse_args()
     if args.action == "row":
@@ -303,6 +313,11 @@ def main():
         value = {"ok": True}
     elif args.action == "windows":
         value = window_scan.refresh(args.root, names=True)
+        from autocad_channel import local_channel
+        value['autocad_recovery']=local_channel(args.root).state()
+    elif args.action == 'confirm-autocad-recovery':
+        from autocad_channel import local_channel
+        value=local_channel(args.root).confirm(args.request_id,args.target_token)
     elif args.action in ("open-cad","application-state"):
         from cad_launch import ensure_started, wait_for_application
         if not args.kind: raise ValueError("請指定要開啟的軟體。")

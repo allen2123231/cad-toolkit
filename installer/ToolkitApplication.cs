@@ -18,6 +18,8 @@ public sealed class ToolkitApplication : IDisposable
     TrayPanel? popup;
     InstallWindow? wizard;
     WindowPicker? picker;
+    AutoCadRecoveryWindow? recovery;
+    string? shownRecovery;
     readonly HashSet<string> shownRequests=new();
     bool exiting;
     readonly bool installer;
@@ -32,6 +34,10 @@ public sealed class ToolkitApplication : IDisposable
         host.Updates.Notify+=version=>app.Dispatcher.BeginInvoke(()=>{tray.BalloonTipTitle="MCP Toolkit 有新版本";tray.BalloonTipText=version+" 已推出，點此查看內容並更新。";tray.ShowBalloonTip(8000);});
         host.Changed+=()=>{var old=tray.Icon;tray.Icon=ToolkitVisuals.TrayIcon(host.Connected);old?.Dispose();tray.Text="MCP Toolkit · "+host.Rows.Count(r=>ExperienceState.Text(r,"code")=="READY")+" 套可以使用";};
         host.WindowsChanged+=()=>{
+            if(host.WindowPanel.TryGetProperty("autocad_recovery",out var state)&&state.TryGetProperty("recovery",out var interrupted)&&interrupted.ValueKind==System.Text.Json.JsonValueKind.Object){
+                string id=ExperienceState.Text(interrupted,"request_id");
+                if(id!=shownRecovery){shownRecovery=id;recovery??=new AutoCadRecoveryWindow(host);recovery.Closed+=(_,_)=>recovery=null;recovery.Show();recovery.Activate();}
+            }else shownRecovery=null;
             var ids=host.WindowPanel.GetProperty("requests").EnumerateArray().Select(r=>ExperienceState.Text(r,"id")).Concat(host.WindowPanel.GetProperty("confirmations").EnumerateArray().Select(r=>ExperienceState.Text(r,"id")+":"+r.GetProperty("context").GetProperty("document_epoch").ToString())).ToArray();
             shownRequests.RemoveWhere(id=>!ids.Contains(id));
             bool fresh=false;foreach(string id in ids)if(shownRequests.Add(id))fresh=true;
@@ -63,7 +69,7 @@ public sealed class ToolkitApplication : IDisposable
             if(File.Exists(Path.Combine(host.Root,"state.json"))){await host.Refresh();ShowManager("overview");}else Exit();
         };wizard.Show();wizard.Activate();
     }
-    async void Exit(){if(wizard!=null){var closing=wizard;closing.Close();if(closing.IsVisible)return;}if(!installer)try{await host.Run("clear-window-titles");}catch(Exception){}exiting=true;manager?.Close();popup?.Close();picker?.Close();app.Shutdown();}
+    async void Exit(){if(wizard!=null){var closing=wizard;closing.Close();if(closing.IsVisible)return;}if(!installer)try{await host.Run("clear-window-titles");}catch(Exception){}exiting=true;manager?.Close();popup?.Close();picker?.Close();recovery?.Close();app.Shutdown();}
     public void Dispose(){exiting=true;waiter.Unregister(null);activate.Dispose();tray.Visible=false;var icon=tray.Icon;tray.Dispose();icon?.Dispose();host.Dispose();}
     public static string Root(string[] args)=>InstallLocation.Resolve(args);
     public static string Identity(string root)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(root.ToUpperInvariant())))[..20];

@@ -68,6 +68,9 @@ public sealed class RuntimeHost : IDisposable
     JsonElement LiveRow(JsonElement row){
         if(!ExperienceState.Flag(row,"installed"))return row;
         string kind=ExperienceState.Text(row,"id"),code=ExperienceState.Text(row,"code");string? liveCode=null;
+        if(kind=="autocad"&&WindowPanel.TryGetProperty("autocad_recovery",out var recovery)&&recovery.TryGetProperty("recovery",out var pending)&&pending.ValueKind==JsonValueKind.Object){
+            var interrupted=JsonNode.Parse(row.GetRawText())!.AsObject();interrupted["code"]="RECOVERY_REQUIRED";return JsonSerializer.SerializeToElement(interrupted);
+        }
         if(!ExperienceState.Names.ContainsKey(kind))return row;
         if(IsManualCheck&&(CheckingKind==null||CheckingKind==kind))liveCode="CHECKING";
         else if(CheckError!=null)liveCode="CHECK_FAILED";

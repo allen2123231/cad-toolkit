@@ -64,6 +64,33 @@ class DesktopChecks
         }
         string output=Path.GetFullPath(args.Length>0?args[0]:"test-results/desktop");Directory.CreateDirectory(output);var app=new Application{ShutdownMode=ShutdownMode.OnExplicitShutdown};
         app.Startup+=async(_,_)=>{try{
+            if(args.Contains("--repro-autocad-recovery")){
+                string panel="""{"windows":[],"requests":[],"confirmations":[],"autocad_recovery":{"recovery":{"request_id":"native-interruption-test","command":"execute-lisp"},"can_confirm":false,"target_token":"new-document-token","current_document":null}}""";
+                string? action=null;string[]? received=null;
+                using var recoveryHost=new RuntimeHost(Path.Combine(output,"root"),[],false,(name,arguments)=>{action=name;received=arguments;return Task.FromResult(JsonDocument.Parse(name=="windows"?panel:"{\"ok\":true}").RootElement.Clone());});
+                recoveryHost.ApplyWindowSnapshot(JsonDocument.Parse(panel).RootElement);
+                var view=new AutoCadRecoveryWindow(recoveryHost);view.Show();view.UpdateLayout();
+                var confirm=Find<Button>(view).Single(b=>b.Content?.ToString()=="確認圖面並解除暫停");
+                Assert(!confirm.IsEnabled,"Closed CAD must not be confirmable");
+                Assert(!Find<CheckBox>(view).Single().IsEnabled,"Closed CAD checkbox disabled");
+                Capture(view,Path.Combine(output,"cad-closed.png"),144);
+                panel="""{"windows":[],"requests":[],"confirmations":[],"autocad_recovery":{"recovery":{"request_id":"native-interruption-test","command":"execute-lisp","closed_observed":true},"can_confirm":true,"target_token":"new-document-token","current_document":{"id":"fresh","name":"recovery-test.dwg","path":"C:/Test/recovery-test.dwg","units":4}}}""";
+                recoveryHost.ApplyWindowSnapshot(JsonDocument.Parse(panel).RootElement);view.UpdateLayout();
+                confirm=Find<Button>(view).Single(b=>b.Content?.ToString()=="確認圖面並解除暫停");var check=Find<CheckBox>(view).Single();
+                Assert(check.IsEnabled&&!confirm.IsEnabled,"Reopened CAD still needs human checkbox");
+                check.IsChecked=true;Assert(confirm.IsEnabled,"Inspection enables confirmation");
+                recoveryHost.ApplyWindowSnapshot(JsonDocument.Parse(panel).RootElement);
+                Assert(ReferenceEquals(check,Find<CheckBox>(view).Single())&&check.IsChecked==true,"Identical poll preserves inspection selection");
+                Capture(view,Path.Combine(output,"cad-reopened-confirm.png"),144);
+                var changed=panel.Replace("new-document-token","changed-document-token").Replace("recovery-test.dwg","another.dwg");
+                recoveryHost.ApplyWindowSnapshot(JsonDocument.Parse(changed).RootElement);view.UpdateLayout();
+                Assert(Find<CheckBox>(view).Single().IsChecked!=true,"Document switch resets confirmation");
+                Assert(Find<TextBlock>(view).Any(t=>t.Text.Contains("不會自動重送")),"No replay warning visible");
+                // Exercise a backend action without accepting the human check.
+                await recoveryHost.WindowAction("confirm-autocad-recovery","--request-id","native-interruption-test","--target-token","changed-document-token");
+                Assert(action=="windows","Action refreshes native state afterwards");
+                view.Close();File.WriteAllText(Path.Combine(output,"report.json"),JsonSerializer.Serialize(new{passed=true,checks=count}));Console.WriteLine($"AutoCAD recovery UI: {count} checks passed");app.Shutdown();return;
+            }
             if(args.Contains("--repro-mcp-management")){
                 using var catalogHost=new RuntimeHost(Path.Combine(output,"catalog-root"),[],false);
                 typeof(RuntimeHost).GetProperty("Snapshot")!.SetValue(catalogHost,JsonDocument.Parse("""{"rows":[{"id":"rhino","installed":true,"managed":true,"version":"0.5.3","code":"CAD_NOT_RUNNING","update":"compatible"},{"id":"autocad","installed":false,"code":"NOT_INSTALLED"},{"id":"inventor","installed":true,"managed":true,"version":"0.1.0","code":"CAD_NOT_RUNNING","update":"compatible"}],"history":[]}""").RootElement.Clone());

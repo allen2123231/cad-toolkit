@@ -99,6 +99,7 @@ public sealed class ManagerWindow : Window
     }
     public static string Label(JsonElement row)=>Get(row,"code") switch {
         "CHECK_FAILED"=>"檢查失敗",
+        "RECOVERY_REQUIRED"=>"中斷待確認",
         "READY"=>"可以使用","NOT_INSTALLED"=>"需要安裝","CAD_NOT_RUNNING"=>"等待開啟","BACKGROUND_ONLY"=>"等待顯示視窗","CHECKING"=>"檢查中","TARGET_MISMATCH"=>"等待連線視窗","NO_DOCUMENT"=>"等待文件","NOT_ENABLED"=>"正在準備連線","SELECT_TARGET"=>"選擇視窗","VERSION_MISMATCH"=>"版本不符","BUSY"=>"指令進行中","STARTING"=>"啟動中","LICENSING_ERROR"=>"授權元件異常","CHECK_TIMEOUT"=>"等待回應",_=>"需要檢查連線"};
     public static Brush StatusColor(JsonElement row)=>Get(row,"code")=="READY"?Color("#2F9461"):Get(row,"code") is "CAD_NOT_RUNNING" or "NOT_INSTALLED"?Muted:Color("#B17A24");
     public static FrameworkElement Status(JsonElement row) => new Border{Background=Get(row,"code")=="READY"?Color("#EDF8F0"):Soft,CornerRadius=new CornerRadius(4),Padding=new Thickness(9,3,9,3),Child=Text(Label(row),11,color:StatusColor(row)),HorizontalAlignment=HorizontalAlignment.Right};
@@ -119,6 +120,7 @@ public sealed class ManagerWindow : Window
         if(ExperienceState.Names.ContainsKey(kind)){actions.Children.Add(Button("開啟 "+Get(row,"product",ExperienceState.Names.GetValueOrDefault(kind,kind)),()=>OpenCad(kind),true));actions.Children.Add(RecheckButton(kind));actions.Children.Add(Button("選擇程式",()=>ChooseApplication(kind)));actions.Children.Add(Button(ExperienceState.Flag(row,"installed")?"設定／修復":"安裝 MCP",()=>setup(kind,ExperienceState.Flag(row,"installed")?4:3)));}
         else actions.Children.Add(Button("查看 MCP 管理",()=>Navigate("mcps")));
         panel.Children.Add(actions);
+        if(kind=="autocad")panel.Children.Add(Button("中斷恢復",()=>new AutoCadRecoveryWindow(host){Owner=this}.Show()));
         if(host.LastCheckedAt(kind) is DateTime checkedAt)panel.Children.Add(Text("上次檢查："+checkedAt.ToString("HH:mm:ss"),10,color:Muted));
         if(!ExperienceState.Flag(row,"managed"))panel.Children.Add(Text("既有 MCP 設定 · 可直接檢查；完成 Toolkit 安裝與啟用後會記錄最近指令。",11,color:Muted));
         if(kind=="rhino"){
