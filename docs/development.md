@@ -14,6 +14,8 @@
 
 ## 程式結構
 
+本機 `0.6.1-dev.1` 在相同測試分支加入 AutoCAD 唯讀與修改恢復隔離；實作與本機驗證見 [唯讀與中斷恢復驗證](validation-access-recovery.md)。dev 安裝檔僅供本機使用，沒有對應公開 Release；發布前需使用者確認並另行決定公開版本號。
+
 - `installer/ToolkitApplication.cs`：單一實例、系統匣、視窗及結束生命週期。
 - `InstallWindow.cs`：選擇 MCP、安裝進度、完成／重試。一次 setup 完成外掛與 Plugin 設定。
 - `ManagerWindow.cs`、`TrayPanel.cs`：完整管理及小型狀態面板。

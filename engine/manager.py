@@ -82,7 +82,7 @@ def plugin_files(destination, template, commands, version, env, history_root=Non
         if history_root:
             tools_dir = destination / "tools"
             tools_dir.mkdir(exist_ok=True)
-            for helper in ("relay.py", "history.py", "rhino_instances.py", "rhino_router.py", "window_store.py", "window_scan.py", "probe.py", "cad_launch.py","cad_products.py","autocad_channel.py","autocad_context.py"):
+            for helper in ("relay.py", "history.py", "rhino_instances.py", "rhino_router.py", "window_store.py", "window_scan.py", "probe.py", "cad_launch.py","cad_products.py","autocad_channel.py","autocad_context.py","autocad_access.py"):
                 shutil.copy2(Path(__file__).with_name(helper), tools_dir / helper)
             python = Path(cmd[0]).with_name("python.exe")
             cmd = [str(python), "-X", "utf8", str(tools_dir / "relay.py"), "--root", str(history_root), "--component", name, "--", *cmd]

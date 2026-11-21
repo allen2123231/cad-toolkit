@@ -25,15 +25,20 @@ public sealed class AutoCadRecoveryWindow : Window
         bool pending=state.ValueKind==JsonValueKind.Object&&state.TryGetProperty("recovery",out var r)&&r.ValueKind==JsonValueKind.Object;
         string next=state.ValueKind==JsonValueKind.Object?state.GetRawText():"";
         if(fingerprint==next)return;fingerprint=next;body.Children.Clear();
-        body.Children.Add(Text(pending?"上一批指令結果待確認":"AutoCAD 中斷恢復",23,true));
+        body.Children.Add(Text(pending?"修改已暫停，上一批結果待確認":"AutoCAD 中斷恢復",23,true));
         if(!pending){body.Children.Add(Text("目前沒有等待恢復的指令。",14,color:Muted));return;}
         var record=state.GetProperty("recovery");
         var warning=new StackPanel();warning.Children.Add(Text("不會自動重送，也不會補執行舊指令",16,true));
-        warning.Children.Add(Text("CAD 關閉或回覆逾時後，無法確定圖面是否已部分修改。新的操作仍可收到，但會先暫停執行。",13));
+        warning.Children.Add(Text("上一批修改的結果不明。新的修改要求會被阻擋，不會排隊或自動重送。唯讀查詢不代表已解除修改暫停。",13));
         body.Children.Add(new Border{Child=warning,Background=Color("#FFF3D5"),Padding=new Thickness(16),CornerRadius=new CornerRadius(7),Margin=new Thickness(0,18,0,16)});
+        bool readable=state.TryGetProperty("read_available",out var read)&&read.ValueKind==JsonValueKind.True;
+        body.Children.Add(Text(readable?"唯讀查詢：可使用 MCP 查圖　｜　修改：已暫停":"唯讀查詢：尚未就緒　｜　修改：已暫停",14,true));
+        body.Children.Add(Text("此保護適用於 Toolkit 管理的操作；不會封鎖其他程式直接存取 AutoCAD。",11,color:Muted));
         string operation=ExperienceState.Text(record,"command") switch{"execute-lisp"=>"圖面操作","create-circle"=>"建立圓",var command=>command};
         body.Children.Add(Text("上一批操作："+operation,13,true));
         body.Children.Add(Text("識別碼："+ExperienceState.Text(record,"request_id"),11,color:Muted));
+        string reason=ExperienceState.Text(record,"reason"),error=ExperienceState.Text(record,"error");
+        body.Children.Add(Text("中斷原因："+reason+(error.Length>0?"\n"+error:""),12));
         body.Children.Add(Text("處理方式：先儲存可保留的工作、關閉並重新開啟 CAD，再檢查實際圖面。不要直接重做上一批。",13));
         var actions=new WrapPanel{Margin=new Thickness(0,12,0,16)};
         actions.Children.Add(Button("開啟／顯示 AutoCAD",async()=>{try{await host.OpenCad("autocad");}catch(Exception ex){MessageBox.Show(this,ex.Message,"MCP Toolkit");}}));

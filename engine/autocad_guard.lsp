@@ -56,3 +56,32 @@
                   (vl-catch-all-apply 'mcp-toolkit-context-write nil)))))))))
   (princ))
 (princ)
+
+;;; Separate entry and inbox: never touches write mail or changes drawing vars.
+;;; A delayed read notification cannot accidentally dispatch abandoned writes.
+(defun c:mcp-read (/ files file text request-id cmd result result-file)
+  (setq files (vl-directory-files *mcp-ipc-dir* "autocad_mcp_read_*.json" 1))
+  (if (= (length files) 1)
+    (progn
+      (setq file (strcat *mcp-ipc-dir* (car files)) text (mcp-read-file-lines file)
+            request-id (mcp-json-get-string text "request_id") cmd (mcp-json-get-string text "command"))
+      (if (and request-id cmd)
+        (progn
+          (setq result-file (strcat *mcp-ipc-dir* "autocad_mcp_result_" request-id ".json"))
+          (vl-file-delete file)
+          (cond
+            ((not (member cmd '("ping" "drawing-info" "drawing-get-variables" "entity-count" "entity-list" "entity-get" "layer-list" "block-list" "block-get-attributes")))
+              (mcp-write-result result-file request-id nil nil "READ_OPERATION_NOT_ALLOWED"))
+            ((or (/= (mcp-json-get-number text "toolkit_protocol") 3)
+                 (/= (mcp-json-get-number text "toolkit_hwnd") (vla-get-HWND (vlax-get-acad-object)))
+                 (/= (mcp-json-get-string text "toolkit_document") *mcp-toolkit-document-id*))
+              (mcp-write-result result-file request-id nil nil "TARGET_DOCUMENT_CHANGED_NOT_EXECUTED"))
+            ((or *mcp-toolkit-native-busy* (> (getvar "CMDACTIVE") 0))
+              (mcp-write-result result-file request-id nil nil "CAD_BUSY_NOT_EXECUTED"))
+            (T
+              (setq result (vl-catch-all-apply 'mcp-dispatch-command (list cmd text)))
+              (if (vl-catch-all-error-p result) (setq result (cons nil (vl-catch-all-error-message result))))
+              (if (car result)
+                (mcp-write-result result-file request-id T (cdr result) nil)
+                (mcp-write-result result-file request-id nil nil (cdr result)))))))))
+  (princ))

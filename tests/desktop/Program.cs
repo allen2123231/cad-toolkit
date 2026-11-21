@@ -74,10 +74,12 @@ class DesktopChecks
                 Assert(!confirm.IsEnabled,"Closed CAD must not be confirmable");
                 Assert(!Find<CheckBox>(view).Single().IsEnabled,"Closed CAD checkbox disabled");
                 Capture(view,Path.Combine(output,"cad-closed.png"),144);
-                panel="""{"windows":[],"requests":[],"confirmations":[],"autocad_recovery":{"recovery":{"request_id":"native-interruption-test","command":"execute-lisp","closed_observed":true},"can_confirm":true,"target_token":"new-document-token","current_document":{"id":"fresh","name":"recovery-test.dwg","path":"C:/Test/recovery-test.dwg","units":4}}}""";
+                panel="""{"windows":[],"requests":[],"confirmations":[],"autocad_recovery":{"read_available":true,"write_available":false,"recovery":{"request_id":"native-interruption-test","command":"execute-lisp","closed_observed":true,"reason":"sender_or_notification_interrupted","error":"test notification failure"},"can_confirm":true,"target_token":"new-document-token","current_document":{"id":"fresh","name":"recovery-test.dwg","path":"C:/Test/recovery-test.dwg","units":4}}}""";
                 recoveryHost.ApplyWindowSnapshot(JsonDocument.Parse(panel).RootElement);view.UpdateLayout();
                 confirm=Find<Button>(view).Single(b=>b.Content?.ToString()=="確認圖面並解除暫停");var check=Find<CheckBox>(view).Single();
                 Assert(check.IsEnabled&&!confirm.IsEnabled,"Reopened CAD still needs human checkbox");
+                Assert(Find<TextBlock>(view).Any(t=>t.Text.Contains("可使用 MCP 查圖")&&t.Text.Contains("修改：已暫停")),"Read availability is distinct from write permission");
+                Assert(Find<TextBlock>(view).Any(t=>t.Text.Contains("test notification failure")),"Original notification error is visible");
                 check.IsChecked=true;Assert(confirm.IsEnabled,"Inspection enables confirmation");
                 recoveryHost.ApplyWindowSnapshot(JsonDocument.Parse(panel).RootElement);
                 Assert(ReferenceEquals(check,Find<CheckBox>(view).Single())&&check.IsChecked==true,"Identical poll preserves inspection selection");

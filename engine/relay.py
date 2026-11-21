@@ -78,10 +78,12 @@ def run(root, component, command, cwd=None, env=None):
                     message = json.loads(line)
                     if component=='autocad' and message.get('method')=='tools/call' and 'id' in message:
                         from autocad_channel import local_channel,failed
+                        from autocad_access import readonly_tool
                         name=message.get('params',{}).get('name')
                         if name not in ('open_application','get_application_state'):
                             state=local_channel(root).state()
-                            if name=='get_recovery_state' or state.get('recovery') or state.get('code')=='DESKTOP_BUSY_OTHER_CLIENT':
+                            is_read=readonly_tool(name,message.get('params',{}).get('arguments') or {})
+                            if name=='get_recovery_state' or (state.get('recovery') and not is_read) or state.get('code')=='DESKTOP_BUSY_OTHER_CLIENT':
                                 value=state if name=='get_recovery_state' else failed('RECOVERY_REQUIRED' if state.get('recovery') else 'DESKTOP_BUSY_OTHER_CLIENT')
                                 identity=prefix+':'+json.dumps(message['id'])
                                 receipt(history.started,identity,component,name)
@@ -126,7 +128,7 @@ def run(root, component, command, cwd=None, env=None):
                         if component=='autocad':result['tools'].append(recovery_tool())
                         line = (json.dumps(message,ensure_ascii=True)+"\n").encode("utf-8")
                     elif "serverInfo" in result:
-                        if component=='autocad':result['instructions']=result.get('instructions','')+'\nThis Toolkit server supports AutoCAD and AutoCAD LT. Check application state and product first. AutoCAD LT supports 2D drafting through the LISP/file-IPC bridge; never promise full AutoCAD 3D solid, surface, .NET or external COM capabilities in LT. If multiple AutoCAD/LT instances are open, stop and request one unambiguous target. Do not ask the user to type connection commands. On RECOVERY_REQUIRED, CAD_CLOSED, or an unknown result, use get_recovery_state/open_application to assist recovery. Never automatically repeat the previous command, including after reconnect or user confirmation. Requests blocked during recovery were NOT queued. Ask the user to inspect and confirm the drawing in Toolkit, then explicitly submit new work.'
+                        if component=='autocad':result['instructions']=result.get('instructions','')+'\nThis Toolkit server supports AutoCAD and AutoCAD LT. Check application state and product first. AutoCAD LT supports 2D drafting through the LISP/file-IPC bridge; never promise full AutoCAD 3D solid, surface, .NET or external COM capabilities in LT. If multiple AutoCAD/LT instances are open, stop and request one unambiguous target. Do not ask the user to type connection commands. On RECOVERY_REQUIRED, CAD_CLOSED, or an unknown result, use get_recovery_state/open_application to assist recovery. Never automatically repeat the previous command, including after reconnect or user confirmation. Requests blocked during recovery were NOT queued. Ask the user to inspect and confirm the drawing in Toolkit, then explicitly submit new work. Audited read-only operations remain available during write recovery through the isolated native read inbox. Use these managed tools for inspection. NEVER bypass recovery by using external COM, shell, raw mailbox files, SendCommand or arbitrary LISP. A successful read does not release the write barrier. This policy covers Toolkit-managed access, not third-party CAD clients.'
                         result["instructions"] = result.get("instructions","")+"\nBefore CAD operations, use open_application and get_application_state to obtain a visible main window. Never launch CAD with hidden shell flags, and never start a second process while the first is starting. A process alone is not readiness. Check the MCP bridge after the window opens. Do not ask the user for APPLOAD or manual connection commands; use Toolkit's installation/repair flow when necessary."
                         line = (json.dumps(message,ensure_ascii=True)+"\n").encode("utf-8")
                 if "id" in message:

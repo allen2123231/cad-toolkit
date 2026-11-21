@@ -12,7 +12,7 @@
             hwnd (vl-princ-to-string (vla-get-HWND app))
             file (strcat *mcp-ipc-dir* "toolkit-context-" hwnd ".json")
             tmp (strcat file ".tmp"))
-      (setq payload (strcat "{\"schema\":1,\"guard_protocol\":2,\"hwnd\":" hwnd
+      (setq payload (strcat "{\"schema\":1,\"guard_protocol\":3,\"hwnd\":" hwnd
         ",\"phase\":\"" *mcp-toolkit-phase* "\""
         ",\"product\":\"" (mcp-escape-string (getvar "PROGRAM")) "\""
         ",\"version\":\"" (mcp-escape-string (getvar "ACADVER")) "\""

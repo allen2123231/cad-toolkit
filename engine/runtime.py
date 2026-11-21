@@ -177,7 +177,9 @@ def row(kind, source, pids, root, manifest, choices, frames=None):
             from autocad_channel import local_channel
             recovery=local_channel(root).state()
             if recovery.get('recovery'):
-                info.update(code='RECOVERY_REQUIRED',recovery=recovery,message='上一批指令結果待確認。請開啟「中斷恢復」；確認後重新提出操作，不會自動補送。')
+                info.update(code='RECOVERY_REQUIRED',recovery=recovery,
+                            read_available=recovery.get('read_available',False),write_available=False,
+                            message='修改暫停；'+('可透過 MCP 唯讀查圖。' if recovery.get('read_available') else '唯讀查詢目前尚未就緒。')+'請檢查並確認圖面；不會自動補送。')
                 return info
             if recovery.get('code')=='DESKTOP_BUSY_OTHER_CLIENT':
                 info.update(code='BUSY',message='另一個要求正在使用通道；背景檢查不會插入繪圖指令。')

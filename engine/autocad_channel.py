@@ -14,6 +14,18 @@ import queue
 import threading
 import time
 import uuid
+from autocad_access import READ_COMMANDS
+
+
+class NotSent(RuntimeError):
+    """Only raised before ANY native notification call/character was attempted."""
+    def __init__(self,code,message):
+        super().__init__(message);self.code=code
+
+
+def error_details(exc):
+    # Only the exception, never request parameters or executable LISP.
+    return dict(error_type=type(exc).__name__,error=str(exc)[:1600])
 
 
 def atomic(path, value):
@@ -65,6 +77,7 @@ def failed(code):
         'CAD_BUSY':'AutoCAD／LT 正忙碌或有對話框。此次操作未傳送，請完成後重新提出。',
         'BRIDGE_UPDATE_REQUIRED':'AutoCAD／LT 外掛需要更新。請在 Toolkit 修復並儲存、重新開啟軟體，不需要輸入載入指令。',
         'DESKTOP_BUSY_OTHER_CLIENT':'另一個要求正在使用 AutoCAD 通道。此次要求未排入執行，稍後請重新提出。',
+        'READ_FAILED':'唯讀查詢未完成，沒有解除修改暫停，也沒有重送操作。',
     }
     return dict(ok=False, code=code, error=code+': '+messages.get(code, code), retry_automatically=False)
 
@@ -82,7 +95,7 @@ class Channel:
         frame=frames[0]
         try: context=self.context(frame)
         except (RuntimeError, ValueError, OSError): return frame, None, 'BRIDGE_UPDATE_REQUIRED'
-        if context.get('guard_protocol')!=2 or not context.get('document',{}).get('id'):
+        if context.get('guard_protocol') not in (2,3) or not context.get('document',{}).get('id'):
             return frame, context, 'BRIDGE_UPDATE_REQUIRED'
         if context['document'].get('busy') or context.get('modal'):
             return frame, context, 'CAD_BUSY'
@@ -119,14 +132,22 @@ class Channel:
     def _quarantine(self, record):
         key=self._id(record); folder=self.ipc/'toolkit-interrupted'/key
         folder.mkdir(parents=True,exist_ok=True)
-        # Only an OS-proven dead process allows removing runnable mail. Keep the
-        # original code and parameters locally for diagnosis; never load it again.
+        # Used only for OS-proven death, an audited query, or proven pre-send
+        # failure. Keep evidence locally for diagnosis; never load it again.
         for path in (self.pending,self.ipc/f'autocad_mcp_cmd_{key}.json'):
             if path.exists(): os.replace(path,folder/path.name)
 
     def _reconcile(self):
         record=read(self.recovery)
         pending=read(self.pending)
+        # An audited query cannot partially modify geometry. Retire its old mail
+        # without replay, even if its caller died. Never apply this to arbitrary LISP.
+        if record and record.get('command') in READ_COMMANDS:
+            key=self._id(record)
+            if (not pending or (pending.get('request_id')==key and pending.get('command')==record['command'])):
+                self._quarantine(record)
+                record.update(stage='archived_readonly',archived_at=time.time())
+                self._journal(record);self.recovery.unlink();record=None;pending=None
         if not pending and not record:
             orphans=sorted(self.ipc.glob('autocad_mcp_cmd_*.json'))
             if orphans:
@@ -162,6 +183,9 @@ class Channel:
         record=self._reconcile()
         frame,context,error=self.target()
         return dict(recovery=record,current_frame=identity(frame),current_document=(context or {}).get('document'),
+                    read_available=bool(not error and (context or {}).get('guard_protocol')==3),
+                    write_available=bool(not error and not record),
+                    access_scope='toolkit_managed_only',
                     target_token=self._token(frame,context),code=error or ('RECOVERY_REQUIRED' if record else 'READY'),
                     can_confirm=bool(record and record.get('closed_observed') and not error and frame
                                      and float(frame['processStart'])>float(record.get('ts',float('inf')))
@@ -194,9 +218,20 @@ class Channel:
     async def dispatch(self, command, params, post, timeout=8):
         try:
             with lease(self.ipc):
-                if self._reconcile(): return failed('RECOVERY_REQUIRED')
+                recovery=self._reconcile()
+                readonly=command in READ_COMMANDS
+                if recovery and not readonly:return failed('RECOVERY_REQUIRED')
                 frame,context,error=self.target()
                 if error:return failed(error)
+                if readonly:
+                    if context.get('guard_protocol')!=3:return failed('BRIDGE_UPDATE_REQUIRED')
+                    # An earlier reader can die without its finally block. The
+                    # lease proves no managed request is still using these files.
+                    # Late read notifications have no path into the write inbox.
+                    for stale in self.ipc.glob('autocad_mcp_read_*.json'):
+                        folder=self.ipc/'toolkit-interrupted-reads';folder.mkdir(exist_ok=True)
+                        os.replace(stale,folder/(uuid.uuid4().hex+'-'+stale.name))
+                    return await self._read_dispatch(command,params,post,timeout,frame,context)
                 key=uuid.uuid4().hex
                 record=dict(request_id=key,command=command,frame=identity(frame),document=context['document'],stage='prepared',ts=time.time())
                 self._journal(record)
@@ -206,7 +241,7 @@ class Channel:
                 atomic(self.pending,request)
                 atomic(self.ipc/f'autocad_mcp_cmd_{key}.json',request)
                 try:
-                    record['stage']='notified';self._journal(record)
+                    record['stage']='notifying';self._journal(record)
                     # COM SendCommand may itself block while CAD runs a command.
                     # A daemon notifier keeps MCP responsive and process exit
                     # independent of a wedged COM call. The mailbox is never resent.
@@ -239,15 +274,55 @@ class Channel:
                             self._unknown(request,'completion_timeout')
                             return failed('RECOVERY_REQUIRED')
                         await asyncio.sleep(.1)
-                except BaseException:
+                except NotSent as exc:
+                    record.update(stage='not_sent',finished_at=time.time(),**error_details(exc))
+                    self._journal(record)
+                    self._quarantine(record)
+                    return failed(exc.code)
+                except BaseException as exc:
                     # Includes cancellation/relay termination. OS death is handled
                     # from durable pending+journal by the next observer.
-                    self._unknown(request,'sender_or_notification_interrupted')
+                    unknown=self._unknown(request,'sender_or_notification_interrupted')
+                    unknown.update(**error_details(exc));atomic(self.recovery,unknown);self._journal(unknown)
                     self._reconcile()
                     raise
         except RuntimeError as exc:
             if str(exc)=='DESKTOP_BUSY_OTHER_CLIENT':return failed(str(exc))
             raise
+
+    async def _read_dispatch(self,command,params,post,timeout,frame,context):
+        key=uuid.uuid4().hex
+        request=dict(request_id=key,command=command,params=params,toolkit_protocol=3,
+                     toolkit_hwnd=frame['hwnd'],toolkit_frame=identity(frame),
+                     toolkit_document=context['document']['id'],access='read',ts=time.time())
+        mail=self.ipc/f'autocad_mcp_read_{key}.json'
+        result_path=self.ipc/f'autocad_mcp_result_{key}.json'
+        record=dict(request_id=key,command=command,access='read',frame=identity(frame),ts=request['ts'],stage='prepared')
+        self._journal(record);atomic(mail,request)
+        notices=queue.Queue()
+        def notify():
+            try:post(request)
+            except BaseException as exc:notices.put(exc)
+        threading.Thread(target=notify,daemon=True,name='cad-read-'+key[:8]).start()
+        deadline=time.monotonic()+timeout
+        try:
+            while True:
+                result=read(result_path)
+                if result and result.get('request_id')==key:
+                    record.update(stage='completed',ok=result.get('ok',False));return result
+                if not notices.empty():raise notices.get_nowait()
+                if not self.alive(identity(frame)):raise RuntimeError('CAD_CLOSED')
+                if time.monotonic()>=deadline:raise TimeoutError('read completion timeout')
+                await asyncio.sleep(.05)
+        except Exception as exc:
+            record.update(stage='read_failed',**error_details(exc))
+            result=failed(exc.code if isinstance(exc,NotSent) else 'READ_FAILED')
+            result.update(error_type=type(exc).__name__,error_detail=str(exc)[:1600]);return result
+        finally:
+            # A delayed c:mcp-read can only inspect the read inbox. It can NEVER
+            # fall through to an abandoned write, even after recovery is cleared.
+            mail.unlink(missing_ok=True);result_path.unlink(missing_ok=True)
+            record['finished_at']=time.time();self._journal(record)
 
 
 def local_channel(root):

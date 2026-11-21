@@ -1,5 +1,5 @@
 {
-  "version": "0.6.1-beta.1",
+  "version": "0.6.1-dev.1",
   "python": "3.12.11",
   "uv": "0.8.17",
   "components": {
