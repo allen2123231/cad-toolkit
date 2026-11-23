@@ -66,15 +66,18 @@ class DesktopChecks
         app.Startup+=async(_,_)=>{try{
             if(args.Contains("--repro-autocad-inplace")){
                 string waiting="""{"windows":[],"requests":[],"confirmations":[],"autocad_recovery":{"read_available":true,"write_available":false,"code":"RECOVERY_REQUIRED","can_confirm":false,"target_token":"original-window-token","recovery":{"request_id":"same-window-test","command":"execute-lisp","reason":"sender_or_notification_interrupted"},"current_document":{"id":"doc","name":"test.dwg","path":"C:/Test/test.dwg","units":4}}}""";
+                waiting=waiting.Replace("\"command\":\"execute-lisp\"","\"document\":{\"id\":\"old-doc\",\"name\":\"original.dwg\",\"path\":\"C:/Test/original.dwg\"},\"command\":\"execute-lisp\"");
                 string ready=waiting.Replace("\"can_confirm\":false","\"can_confirm\":true,\"recovery_mode\":\"in_place\"");
-                string panel=waiting;int preparations=0;string[]? received=null;
+                string panel=waiting;int preparations=0;string[]? received=null;bool failRecovery=false;
                 using var inplaceHost=new RuntimeHost(Path.Combine(output,"root"),[],false,(name,arguments)=>{
-                    if(name=="prepare-autocad-recovery"){preparations++;received=arguments;panel=ready;}
+                    if(name=="prepare-autocad-recovery"){if(failRecovery)throw new Exception("另一份圖面仍有指令");preparations++;received=arguments;panel=ready;}
                     return Task.FromResult(JsonDocument.Parse(name=="windows"?panel:"{\"ok\":true}").RootElement.Clone());
                 });
                 inplaceHost.ApplyWindowSnapshot(JsonDocument.Parse(panel).RootElement);
                 var view=new AutoCadRecoveryWindow(inplaceHost);view.Show();view.UpdateLayout();
                 Assert(!Find<CheckBox>(view).Single().IsEnabled,"Passive idle status cannot enable confirmation");
+                Assert(Find<TextBlock>(view).Any(t=>t.Text.Contains("中斷時圖面：original.dwg")),"Original drawing shown alongside current drawing");
+                Assert(Find<TextBlock>(view).Any(t=>t.Text.Contains("目前已切換至另一份圖面")),"Document switch is explained before recovery");
                 Capture(view,Path.Combine(output,"before-check.png"),120);
                 var repair=Find<Button>(view).Single(b=>b.Content?.ToString()=="檢查並恢復連線");
                 repair.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));view.UpdateLayout();
@@ -88,6 +91,11 @@ class DesktopChecks
                 inplaceHost.ApplyWindowSnapshot(JsonDocument.Parse(waiting.Replace("original-window-token","different-document-token")).RootElement);
                 Assert(!Find<CheckBox>(view).Single().IsEnabled,"Changed target revokes confirmation");
                 Assert(preparations==1,"Polling never automatically repeats recovery or drawing work");
+                failRecovery=true;
+                Find<Button>(view).Single(b=>b.Content?.ToString()=="檢查並恢復連線").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert(Find<TextBlock>(view).Any(t=>t.Text.Contains("另一份圖面仍有指令")),"Recovery failure remains visible in panel");
+                inplaceHost.ApplyWindowSnapshot(JsonDocument.Parse(waiting).RootElement);
+                Assert(Find<TextBlock>(view).Any(t=>t.Text.Contains("另一份圖面仍有指令")),"Status refresh preserves recovery error");
                 view.Close();File.WriteAllText(Path.Combine(output,"report.json"),JsonSerializer.Serialize(new{passed=true,checks=count}));Console.WriteLine($"AutoCAD in-place recovery UI: {count} checks passed");app.Shutdown();return;
             }
             if(args.Contains("--repro-autocad-recovery")){

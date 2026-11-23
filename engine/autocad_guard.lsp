@@ -68,7 +68,27 @@
                  (and (>= char 97) (<= char 122)) (= char 45) (= char 95))) (setq valid nil))
     (setq i (1+ i)))
   valid)
-(defun c:mcp-recover (/ files file text request-id old-key result-file recovery revoked fp payload)
+;;; Check inactive documents too: a command may be suspended in another tab.
+;;; An unavailable document API fails closed (including unsupported LT builds).
+(defun mcp-toolkit-all-documents-idle (/ docs result idle doc value active)
+  (setq idle T
+        result (vl-catch-all-apply 'vla-get-Documents (list (vlax-get-acad-object))))
+  (if (vl-catch-all-error-p result) (setq idle nil)
+    (progn
+      (setq docs result)
+      (vlax-for doc docs
+        (setq value (vl-catch-all-apply 'vla-GetVariable (list doc "CMDACTIVE")))
+        (if (vl-catch-all-error-p value) (setq idle nil)
+          (progn
+            (if (= (type value) 'VARIANT) (setq value (vlax-variant-value value)))
+            ;; COM sees our maintenance LISP as bit 32 in the active document.
+            ;; Ignore ONLY that bit there; suspended LISP in another tab blocks.
+            (setq active (vl-catch-all-apply 'vla-get-Active (list doc)))
+            (if (and (eq active :vlax-true) (numberp value)) (setq value (logand value 223)))
+            (if (or (not (numberp value)) (/= value 0)) (setq idle nil)))))))
+  idle)
+(defun c:mcp-recover (/ files file text request-id old-key result-file recovery revoked fp payload application-idle initial-serial)
+  (setq initial-serial (vl-bb-ref 'mcp-toolkit-switch-serial))
   (setq files (vl-directory-files *mcp-ipc-dir* "autocad_mcp_recover_*.json" 1))
   (if (= (length files) 1)
     (progn
@@ -88,6 +108,12 @@
               (mcp-write-result result-file request-id nil nil "TARGET_DOCUMENT_CHANGED_NOT_EXECUTED"))
             ((or *mcp-toolkit-native-busy* (> (getvar "CMDACTIVE") 0))
               (mcp-write-result result-file request-id nil nil "CAD_BUSY_NOT_EXECUTED"))
+            ((and (eq (mcp-json-get-number text "require_application_idle") 1)
+                  (not (eq (mcp-json-get-number text "expected_switch_serial") initial-serial)))
+              (mcp-write-result result-file request-id nil nil "RECOVERY_TARGET_CHANGED"))
+            ((and (eq (mcp-json-get-number text "require_application_idle") 1)
+                  (not (setq application-idle (mcp-toolkit-all-documents-idle))))
+              (mcp-write-result result-file request-id nil nil "RECOVERY_DOCUMENT_BUSY_OR_UNVERIFIED"))
             (T
               (setq revoked (strcat *mcp-ipc-dir* "toolkit-revoked-" old-key ".json")
                     payload (strcat "{\"request_id\":\"" old-key "\",\"probe_id\":\"" request-id "\"}"))
@@ -97,7 +123,7 @@
                   (if (findfile revoked) (vl-file-delete revoked))
                   (if (vl-file-rename (strcat revoked ".tmp") revoked)
                     (mcp-write-result result-file request-id T
-                      (strcat "{\"fenced_request_id\":\"" old-key "\",\"document_id\":\"" *mcp-toolkit-document-id* "\",\"probe_id\":\"" request-id "\"}") nil)
+                      (strcat "{\"fenced_request_id\":\"" old-key "\",\"document_id\":\"" *mcp-toolkit-document-id* "\",\"probe_id\":\"" request-id "\",\"application_idle\":" (if application-idle "true" "false") ",\"initial_switch_serial\":" (itoa initial-serial) ",\"verified_switch_serial\":" (itoa (vl-bb-ref 'mcp-toolkit-switch-serial)) "}") nil)
                     (mcp-write-result result-file request-id nil nil "RECOVERY_FENCE_WRITE_FAILED")))
                 (mcp-write-result result-file request-id nil nil "RECOVERY_FENCE_WRITE_FAILED"))))))))
   (princ))

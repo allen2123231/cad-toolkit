@@ -55,7 +55,15 @@ async def run(args):
     candidate=bundle/('toolkit-test-'+uuid.uuid4().hex+'.lsp')
     candidate.write_text(text,encoding='utf-8')
     script=output/'startup.scr'
-    script.write_text('(load "'+candidate.as_posix()+'")\n(setvar "INSUNITS" 4)\n(princ)\n',encoding='ascii')
+    first_document=output/'first-document.txt'
+    script.write_text('(load "'+candidate.as_posix()+'")\n'
+        '(setq tk-fp (open "'+first_document.as_posix()+'" "w"))\n'
+        '(write-line *mcp-toolkit-document-id* tk-fp)\n(close tk-fp)\n'
+        '(vl-bb-set \'toolkit-test-filedia (getvar "FILEDIA"))\n(setvar "FILEDIA" 0)\n'
+        '_.NEW\n"'+Path(args.template).as_posix()+'"\n'
+        '(load "'+candidate.as_posix()+'")\n'
+        '(setvar "FILEDIA" (vl-bb-ref \'toolkit-test-filedia))\n'
+        '(setvar "INSUNITS" 4)\n(princ)\n',encoding='ascii')
     owned=None;owned_frame=None;checks=[]
     existing=[{k:w[k] for k in ('pid','hwnd','processStart')} for w in window_scan.scan() if w['kind']=='autocad']
     def check(label,condition,**details):
@@ -73,6 +81,9 @@ async def run(args):
             owned.terminate();owned.wait(timeout=15)
     async def start(document=None):
         nonlocal owned,owned_frame
+        if document:
+            # Reopen scenarios must retain the saved target, not create a new tab.
+            script.write_text('(load "'+candidate.as_posix()+'")\n(setvar "INSUNITS" 4)\n(princ)\n',encoding='ascii')
         argv=[args.exe,'/nologo']
         if document:argv.append(str(document))
         else:argv+=['/t',args.template]
@@ -128,6 +139,28 @@ async def run(args):
         saved=output/'recovery-test.dwg'
         result=await call('drawing-save',{'path':saved.as_posix()})
         check('baseline saved',result.get('ok') and saved.is_file(),result=result)
+        original_id=first_document.read_text().strip()
+        state=channel.state()
+        check('owned CAD switched between two real document identities',original_id!=state['current_document']['id'])
+        interrupted=dict(request_id='cross-document-test',command='create-circle',frame=state['current_frame'],
+                         document=dict(id=original_id,name='original-test-document'),ts=time.time(),stage='unknown')
+        atomic(channel.recovery,interrupted)
+        atomic(channel.pending,dict(request_id='cross-document-test',command='create-circle'))
+        atomic(channel.ipc/'autocad_mcp_cmd_cross-document-test.json',dict(request_id='cross-document-test',command='create-circle'))
+        before=channel.state()
+        native_read=channel._read_dispatch
+        async def capture_probe(*values,**options):
+            reply=await native_read(*values,**options)
+            atomic(output/'cross-document-probe.json',dict(reply=reply,before=before))
+            return reply
+        channel._read_dispatch=capture_probe
+        result=await channel.prepare_recovery('cross-document-test',before['target_token'],post,5)
+        channel._read_dispatch=native_read
+        recovered=channel.state()
+        check('cross-document native fence verifies all real documents idle',result.get('ok') and recovered['can_confirm'],result=result)
+        check('cross-document preparation still blocks modification',(await call('create-circle',{'cx':999,'cy':0,'radius':99})).get('code')=='RECOVERY_REQUIRED')
+        channel.confirm('cross-document-test',recovered['target_token'])
+        check('cross-document recovery never replays old geometry',(await call('entity-count')).get('payload',{}).get('count')==0)
         def wrong_document(request):
             value=dict(request,toolkit_document='not-the-current-document')
             atomic(root/'ipc'/f"autocad_mcp_cmd_{request['request_id']}.json",value);post(request)

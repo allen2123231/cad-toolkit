@@ -81,6 +81,8 @@ def failed(code):
         'RECOVERY_TARGET_CHANGED':'視窗或圖面已變更，請回到中斷時的圖面後重新檢查；無法確認時請儲存並重開 CAD。',
         'RECOVERY_MAIL_CONFLICT':'有其他待確認要求，已停止恢復；請保留紀錄供檢查，不會執行或重送。',
         'RECOVERY_PROOF_INVALID':'外掛未能確認舊指令已隔離，修改仍暫停。請稍後重新檢查，或儲存並重開 CAD。',
+        'RECOVERY_DOCUMENT_BUSY_OR_UNVERIFIED':'其他圖面仍有指令，或外掛無法確認所有圖面均已閒置。請完成其他分頁的指令，或切回中斷時圖面再恢復；舊指令不會重送。',
+        'RECOVERY_CROSS_DOCUMENT_UPDATE_REQUIRED':'目前外掛尚不支援跨圖面恢復。請先切回中斷時圖面再恢復，或更新外掛；舊指令不會重送。',
     }
     return dict(ok=False, code=code, error=code+': '+messages.get(code, code), retry_automatically=False)
 
@@ -234,8 +236,10 @@ class Channel:
                 if not record or record['request_id']!=request_id or error or state['target_token']!=target_token:
                     return failed(error or 'RECOVERY_TARGET_CHANGED')
                 if context.get('guard_protocol')!=4:return failed('BRIDGE_UPDATE_REQUIRED')
-                if record.get('frame')!=identity(frame) or record.get('document',{}).get('id')!=context['document']['id']:
+                if (record.get('frame')!=identity(frame) or record.get('legacy')
+                    or not record.get('document',{}).get('id')):
                     return failed('RECOVERY_TARGET_CHANGED')
+                switched=record.get('document',{}).get('id')!=context['document']['id']
                 pending=read(self.pending)
                 if pending and pending.get('request_id')!=request_id:return failed('RECOVERY_MAIL_CONFLICT')
                 if any(p.name!=f'autocad_mcp_cmd_{request_id}.json' for p in self.ipc.glob('autocad_mcp_cmd_*.json')):
@@ -245,18 +249,34 @@ class Channel:
                 for stale in self.ipc.glob('autocad_mcp_recover_*.json'):
                     folder=self.ipc/'toolkit-interrupted-reads';folder.mkdir(exist_ok=True)
                     os.replace(stale,folder/(uuid.uuid4().hex+'-'+stale.name))
-                result=await self._read_dispatch('toolkit-recover',{'fence_request_id':request_id},post,timeout,frame,context,access='recover')
+                result=await self._read_dispatch('toolkit-recover',{'fence_request_id':request_id,'require_application_idle':int(switched),'expected_switch_serial':context['document'].get('switch_serial',0)},post,timeout,frame,context,access='recover')
                 payload=result.get('payload') or {}
+                if result.get('error')=='RECOVERY_DOCUMENT_BUSY_OR_UNVERIFIED':
+                    return failed('RECOVERY_DOCUMENT_BUSY_OR_UNVERIFIED')
+                if not result.get('ok'):return result
+                if result.get('ok') and switched and 'application_idle' not in payload:
+                    return failed('RECOVERY_CROSS_DOCUMENT_UPDATE_REQUIRED')
                 revoked=read(self.ipc/f'toolkit-revoked-{request_id}.json',{})
                 now_frame,now_context,now_error=self.target()
                 probe=payload.get('probe_id')
+                verified_token=target_token
+                if switched:
+                    # COM inspection temporarily activates inactive documents.
+                    # Only a native start/end serial proof can account for it.
+                    serial=payload.get('verified_switch_serial')
+                    if (payload.get('initial_switch_serial')!=context['document'].get('switch_serial',0)
+                        or type(serial) is not int or serial<payload['initial_switch_serial']):
+                        return failed('RECOVERY_PROOF_INVALID')
+                    verified_context={**context,'document':{**context['document'],'switch_serial':serial}}
+                    verified_token=self._token(frame,verified_context)
                 if (not result.get('ok') or payload.get('fenced_request_id')!=request_id or not probe or probe!=result.get('request_id')
                     or payload.get('document_id')!=context['document']['id']
                     or revoked.get('request_id')!=request_id or revoked.get('probe_id')!=probe
-                    or now_error or self._token(now_frame,now_context)!=target_token):
+                    or (switched and payload.get('application_idle') is not True)
+                    or now_error or self._token(now_frame,now_context)!=verified_token):
                     return result if not result.get('ok') else failed('RECOVERY_PROOF_INVALID')
                 self._quarantine(record)
-                record.update(in_place_verified=dict(target_token=target_token,probe_id=probe,at=time.time()))
+                record.update(in_place_verified=dict(target_token=verified_token,probe_id=probe,at=time.time()))
                 atomic(self.recovery,record);self._journal(record)
                 return dict(ok=True,message='原視窗已重新連線，舊指令已隔離。請檢查圖面並勾選確認；尚未解除修改暫停。')
         except RuntimeError as exc:

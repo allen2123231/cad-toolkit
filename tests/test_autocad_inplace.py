@@ -41,10 +41,70 @@ class InPlaceTests(unittest.IsolatedAsyncioTestCase):
         await self.prepare();old=self.channel.state()['target_token'];self.doc['switch_serial']=3
         self.assertFalse(self.channel.state()['can_confirm'])
         with self.assertRaises(ValueError):self.channel.confirm('old',old)
-    async def test_busy_or_changed_document_never_sends_probe(self):
+    async def test_busy_or_changed_process_never_sends_probe(self):
         self.doc['busy']=True
         self.assertFalse((await self.prepare(lambda r:self.fail('sent')))['ok'])
-        self.doc['busy']=False;self.doc['id']='other'
+        self.doc['busy']=False;self.frame['processStart']+=1
+        self.assertFalse((await self.prepare(lambda r:self.fail('sent')))['ok'])
+    async def test_document_switch_requires_application_idle_native_proof(self):
+        self.doc.update(id='other',switch_serial=2)
+        def native(r):
+            self.native(r)
+            path=self.channel.ipc/f"autocad_mcp_result_{r['request_id']}.json"
+            reply=json.loads(path.read_text())
+            reply['payload'].update(document_id='other',application_idle=True,initial_switch_serial=2,verified_switch_serial=2)
+            atomic(path,reply)
+        result=await self.prepare(native)
+        self.assertTrue(result['ok'],result)
+        state=self.channel.state()
+        self.assertTrue(state['can_confirm']);self.assertFalse(state['write_available'])
+        self.assertEqual(state['recovery']['document']['id'],'doc')
+        self.channel.confirm('old',state['target_token'])
+        self.assertTrue(self.channel.state()['write_available'])
+    async def test_document_switch_without_application_idle_proof_keeps_barrier(self):
+        self.doc.update(id='other',switch_serial=2)
+        self.assertFalse((await self.prepare())['ok'])
+        self.assertTrue(self.channel.pending.exists())
+        self.assertFalse(self.channel.state()['can_confirm'])
+    async def test_inactive_document_busy_keeps_mail_and_explains_recovery_failure(self):
+        self.doc.update(id='other',switch_serial=2)
+        def native(r):
+            self.assertEqual(r['params']['require_application_idle'],1)
+            atomic(self.channel.ipc/f"autocad_mcp_result_{r['request_id']}.json",dict(request_id=r['request_id'],ok=False,error='RECOVERY_DOCUMENT_BUSY_OR_UNVERIFIED'))
+        result=await self.prepare(native)
+        self.assertEqual(result['code'],'RECOVERY_DOCUMENT_BUSY_OR_UNVERIFIED')
+        self.assertTrue(self.channel.pending.exists())
+        self.assertFalse(self.channel.state()['can_confirm'])
+    async def test_native_inspection_switches_are_bound_to_fresh_confirmation(self):
+        self.doc.update(id='other',switch_serial=2)
+        def native(r):
+            self.native(r);self.doc['switch_serial']=4
+            path=self.channel.ipc/f"autocad_mcp_result_{r['request_id']}.json"
+            reply=json.loads(path.read_text())
+            reply['payload'].update(document_id='other',application_idle=True,initial_switch_serial=2,verified_switch_serial=4)
+            atomic(path,reply)
+        old=self.channel.state()['target_token']
+        self.assertTrue((await self.prepare(native))['ok'])
+        state=self.channel.state();self.assertTrue(state['can_confirm'])
+        with self.assertRaises(ValueError):self.channel.confirm('old',old)
+        self.doc['switch_serial']=6
+        self.assertFalse(self.channel.state()['can_confirm'])
+    async def test_switch_after_native_proof_never_allows_confirmation(self):
+        self.doc.update(id='other',switch_serial=2)
+        def native(r):
+            self.native(r);self.doc['switch_serial']=6
+            path=self.channel.ipc/f"autocad_mcp_result_{r['request_id']}.json"
+            reply=json.loads(path.read_text())
+            reply['payload'].update(document_id='other',application_idle=True,initial_switch_serial=2,verified_switch_serial=4)
+            atomic(path,reply)
+        self.assertEqual((await self.prepare(native))['code'],'RECOVERY_PROOF_INVALID')
+        self.assertTrue(self.channel.pending.exists())
+    async def test_legacy_native_bridge_explains_cross_document_update_requirement(self):
+        self.doc.update(id='other',switch_serial=2)
+        self.assertEqual((await self.prepare())['code'],'RECOVERY_CROSS_DOCUMENT_UPDATE_REQUIRED')
+    async def test_unidentified_legacy_request_cannot_use_cross_document_recovery(self):
+        self.record.pop('document');self.record['legacy']=True
+        atomic(self.channel.recovery,self.record)
         self.assertFalse((await self.prepare(lambda r:self.fail('sent')))['ok'])
     async def test_rewritten_old_mail_invalidates_confirmation(self):
         await self.prepare();atomic(self.channel.ipc/'autocad_mcp_cmd_old.json',dict(request_id='old'))
