@@ -93,7 +93,8 @@ class Program {
         Assert(!Directory.EnumerateFiles(root,"*.part",SearchOption.AllDirectories).Any(),"cancel and timeout remove partial downloads");handler.StallDownloads=false;
         handler.Offline=true;await updates.Check(true);Assert(updates.Message.Contains("不受影響"),"offline check does not disable CAD");
         updates.Save();using var reloaded=new UpdateController(root,client);Assert(!reloaded.Preferences.Notifications&&reloaded.Preferences.LastSuccess.HasValue,"preferences persist across Toolkit restart");
-        Assert(ToolkitService.CompareVersions("0.5.0-beta.10","0.5.0-beta.2")>0&&ToolkitService.CompareVersions("0.5.0","0.5.0-beta.10")>0,"semantic version order");
+        Assert(ToolkitService.CompareVersions("0.5.0-beta.10","0.5.0-beta.2")>0&&ToolkitService.CompareVersions("0.5.0","0.5.0-beta.10")>0
+            &&ToolkitService.CompareVersions("0.6.2-beta.1","0.6.1-dev.2")>0&&ToolkitService.CompareVersions("0.6.2-beta.1","0.6.1-beta.1")>0,"semantic version order including local test to public beta");
         string outside=Path.Combine(baseDir,"documents");Directory.CreateDirectory(outside);File.WriteAllText(Path.Combine(outside,"work.3dm"),"preserve");
         try{UninstallCleanup.DeleteTree(outside);throw new Exception("non-Toolkit path accepted");}catch(InvalidOperationException){checks++;}
         File.WriteAllText(Path.Combine(root,"McpToolkit.exe"),"owned fixture");File.WriteAllText(Path.Combine(root,"work.3dm"),"user work in install folder");
