@@ -1,6 +1,6 @@
 # AutoCAD 原視窗恢復：本機測試版
 
-2026-11-21；`feature/ai-block-library`；`0.6.1-dev.2`。僅本機安裝，未合併 main、建立標籤、發布 Release 或修改公開更新通道。需使用者確認後才另行發布。
+2026-11-21；`fix/autocad-recovery`；`0.6.1-dev.2`。僅本機安裝，未合併 main、建立標籤、發布 Release 或修改公開更新通道。需使用者確認後才另行發布。
 
 ## 使用方式
 
