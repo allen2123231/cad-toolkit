@@ -10,9 +10,10 @@ def find_managed_window():
 def guarded_backend(base,CommandResult):
     class ManagedBackend(base):
         def _post_text(self,text):
+            from autocad_channel import NotSent
             frame=self._toolkit_frame
             current=[w for w in window_scan.scan() if w['kind']=='autocad' and w.get('visible',True)]
-            if len(current)!=1 or any(frame[k]!=current[0][k] for k in ('pid','hwnd','processStart')):raise RuntimeError('AutoCAD／LT 目標已變更，此次指令未傳送。')
+            if len(current)!=1 or any(frame[k]!=current[0][k] for k in ('pid','hwnd','processStart')):raise NotSent('SELECT_TARGET','AutoCAD／LT 目標已變更，此次指令未傳送。')
             if frame.get('product')=='AutoCAD LT':
                 # Validate the child still belongs to the exact main frame. A
                 # failed PostMessage is an interruption, never a successful send.
@@ -22,7 +23,7 @@ def guarded_backend(base,CommandResult):
                 u.PostMessageW.argtypes=[W.HWND,W.UINT,W.WPARAM,W.LPARAM];u.PostMessageW.restype=W.BOOL
                 u.IsChild.argtypes=[W.HWND,W.HWND];u.IsChild.restype=W.BOOL
                 target=self._command_hwnd or self._hwnd
-                if target!=self._hwnd and not u.IsChild(self._hwnd,target):raise RuntimeError('AutoCAD LT 收件視窗已變更。')
+                if target!=self._hwnd and not u.IsChild(self._hwnd,target):raise NotSent('SELECT_TARGET','AutoCAD LT 收件視窗已變更。')
                 for ch in text+'\r':
                     if not u.PostMessageW(target,0x0102,ord(ch),0):raise ctypes.WinError(ctypes.get_last_error())
                 return
@@ -30,10 +31,27 @@ def guarded_backend(base,CommandResult):
             import pythoncom,win32com.client
             pythoncom.CoInitialize()
             try:
-                app=win32com.client.GetActiveObject('AutoCAD.Application')
-                if int(app.HWND)!=int(frame['hwnd']):raise RuntimeError('AutoCAD 視窗身分不符，已停止傳送。')
-                if app.ActiveDocument.GetVariable('CMDACTIVE')!=0:raise RuntimeError('AutoCAD 有進行中的指令，請完成後再重試；不會自動取消。')
-                app.ActiveDocument.SendCommand(text+'\n')
+                import time
+                deadline=time.monotonic()+3
+                while True:
+                    phase='get_application'
+                    try:
+                        app=win32com.client.GetActiveObject('AutoCAD.Application')
+                        phase='verify_hwnd'
+                        if int(app.HWND)!=int(frame['hwnd']):raise NotSent('SELECT_TARGET','AutoCAD 視窗身分不符，未傳送。')
+                        phase='get_document';doc=app.ActiveDocument
+                        phase='check_cmdactive'
+                        if doc.GetVariable('CMDACTIVE')!=0:raise NotSent('CAD_BUSY','AutoCAD 有進行中的指令，未傳送；不會自動取消。')
+                        break
+                    except NotSent:raise
+                    except Exception as exc:
+                        # Retry ONLY read-only preflight calls rejected as busy.
+                        # Never retry SendCommand or any drawing operation.
+                        if (isinstance(exc,AttributeError) or getattr(exc,'hresult',None) in (-2147418111,-2147417846)) and time.monotonic()<deadline:
+                            pythoncom.PumpWaitingMessages();time.sleep(.1);continue
+                        raise NotSent('CAD_BUSY','通知前檢查失敗 ['+phase+']：'+str(exc)) from exc
+                # Once SendCommand is invoked, even a COM exception is uncertain.
+                doc.SendCommand(text+'\n')
             finally:pythoncom.CoUninitialize()
         async def initialize(self):
             # Initialization must not replay a ping or hide recovery behind a
@@ -76,14 +94,16 @@ def guarded_backend(base,CommandResult):
             import os
             from autocad_channel import identity
             def post(request):
+                from autocad_channel import NotSent
                 frames=[w for w in window_scan.scan() if w['kind']=='autocad' and w.get('visible',True)]
-                if len(frames)!=1 or identity(frames[0])!=request['toolkit_frame']:raise RuntimeError('AutoCAD 目標已變更。')
-                self._attach(frames[0])
-                self._type_dispatch_trigger()
+                if len(frames)!=1 or identity(frames[0])!=request['toolkit_frame']:raise NotSent('SELECT_TARGET','AutoCAD 目標已變更。')
+                try:self._attach(frames[0])
+                except Exception as exc:raise NotSent('CAD_BUSY','通知前附加失敗：'+str(exc)) from exc
+                self._post_text('(c:mcp-read)' if request.get('access')=='read' else '(c:mcp-dispatch)')
             try:
                 value=await self._channel().dispatch(command,params,post,timeout=timeout if timeout is not None else float(os.environ.get('AUTOCAD_MCP_IPC_TIMEOUT','8')))
                 return CommandResult(ok=value.get('ok',False),payload=value.get('payload'),error=value.get('error'))
-            except (RuntimeError,OSError,ValueError) as exc:
+            except Exception as exc:
                 return CommandResult(ok=False,error='此次指令已停止；請查看 Toolkit 中斷恢復狀態。'+str(exc))
     return ManagedBackend
 

@@ -177,7 +177,9 @@ def row(kind, source, pids, root, manifest, choices, frames=None):
             from autocad_channel import local_channel
             recovery=local_channel(root).state()
             if recovery.get('recovery'):
-                info.update(code='RECOVERY_REQUIRED',recovery=recovery,message='上一批指令結果待確認。請開啟「中斷恢復」；確認後重新提出操作，不會自動補送。')
+                info.update(code='RECOVERY_REQUIRED',recovery=recovery,
+                            read_available=recovery.get('read_available',False),write_available=False,
+                            message='修改暫停；'+('可透過 MCP 唯讀查圖。' if recovery.get('read_available') else '唯讀查詢目前尚未就緒。')+'請檢查並確認圖面；不會自動補送。')
                 return info
             if recovery.get('code')=='DESKTOP_BUSY_OTHER_CLIENT':
                 info.update(code='BUSY',message='另一個要求正在使用通道；背景檢查不會插入繪圖指令。')
@@ -288,7 +290,7 @@ def snapshot(root, config, manifest):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["snapshot", "row", "clear-history", "windows", "rename-window", "locate-window", "bind-window", "cancel-binding", "release-binding", "confirm-document", "clear-window-titles", "open-cad", "application-state", "confirm-autocad-recovery"])
+    parser.add_argument("action", choices=["snapshot", "row", "clear-history", "windows", "rename-window", "locate-window", "bind-window", "cancel-binding", "release-binding", "confirm-document", "clear-window-titles", "open-cad", "application-state", "prepare-autocad-recovery", "confirm-autocad-recovery"])
     parser.add_argument("--root", required=True)
     parser.add_argument("--config", default=str(Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml"))
     parser.add_argument("--manifest")
@@ -318,6 +320,15 @@ def main():
     elif args.action == 'confirm-autocad-recovery':
         from autocad_channel import local_channel
         value=local_channel(args.root).confirm(args.request_id,args.target_token)
+    elif args.action == 'prepare-autocad-recovery':
+        source=discover(args.root,args.config).get('autocad')
+        if not source or not source.get('managed'):raise ValueError('請先完成 Toolkit 的 AutoCAD 安裝。')
+        result=subprocess.run([source['python'],'-X','utf8',str(Path(__file__).with_name('autocad_recover.py')),
+                               '--root',args.root,'--request-id',args.request_id,'--target-token',args.target_token],
+                              capture_output=True,text=True,encoding='utf8',timeout=20,creationflags=0x08000000 if os.name=='nt' else 0)
+        if result.returncode:raise ValueError('恢復檢查未完成。'+result.stderr[-800:])
+        value=json.loads(result.stdout)
+        if not value.get('ok'):raise ValueError(value.get('error','恢復檢查未完成，修改仍暫停。'))
     elif args.action in ("open-cad","application-state"):
         from cad_launch import ensure_started, wait_for_application
         if not args.kind: raise ValueError("請指定要開啟的軟體。")

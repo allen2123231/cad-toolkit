@@ -1,6 +1,7 @@
 ;;; Passive status from inside AutoCAD / LT. No external COM automation.
 ;;; Loaded per drawing by the owned Toolkit application bundle.
 (vl-load-com)
+(if (not (vl-bb-ref 'mcp-toolkit-switch-serial)) (vl-bb-set 'mcp-toolkit-switch-serial 0))
 (if (not *mcp-toolkit-document-id*)
   (setq *mcp-toolkit-document-id* (strcat (rtos (getvar "DATE") 2 10) "-" (itoa (getvar "MILLISECS")))))
 (if (not *mcp-toolkit-phase*) (setq *mcp-toolkit-phase* "idle"))
@@ -12,11 +13,11 @@
             hwnd (vl-princ-to-string (vla-get-HWND app))
             file (strcat *mcp-ipc-dir* "toolkit-context-" hwnd ".json")
             tmp (strcat file ".tmp"))
-      (setq payload (strcat "{\"schema\":1,\"guard_protocol\":2,\"hwnd\":" hwnd
+      (setq payload (strcat "{\"schema\":1,\"guard_protocol\":4,\"hwnd\":" hwnd
         ",\"phase\":\"" *mcp-toolkit-phase* "\""
         ",\"product\":\"" (mcp-escape-string (getvar "PROGRAM")) "\""
         ",\"version\":\"" (mcp-escape-string (getvar "ACADVER")) "\""
-        ",\"document\":{\"id\":\"" *mcp-toolkit-document-id* "\",\"name\":\"" (mcp-escape-string (getvar "DWGNAME")) "\""
+        ",\"document\":{\"id\":\"" *mcp-toolkit-document-id* "\",\"switch_serial\":" (itoa (vl-bb-ref 'mcp-toolkit-switch-serial)) ",\"name\":\"" (mcp-escape-string (getvar "DWGNAME")) "\""
         ",\"path\":\"" (mcp-escape-string (if (= (getvar "DWGTITLED") 1) (strcat (getvar "DWGPREFIX") (getvar "DWGNAME")) "")) "\""
         ",\"dirty\":" (if (> (getvar "DBMOD") 0) "true" "false")
         ",\"dbmod\":" (itoa (getvar "DBMOD"))
@@ -32,6 +33,9 @@
   (princ))
 (defun mcp-toolkit-context-event (reactor parameters)
   (vl-catch-all-apply 'mcp-toolkit-context-write nil) (princ))
+(defun mcp-toolkit-document-event (reactor parameters)
+  (vl-bb-set 'mcp-toolkit-switch-serial (1+ (vl-bb-ref 'mcp-toolkit-switch-serial)))
+  (mcp-toolkit-context-event reactor parameters))
 (defun mcp-toolkit-command-start (reactor parameters)
   (setq *mcp-toolkit-native-busy* T)
   (mcp-toolkit-context-event reactor parameters))
@@ -48,6 +52,6 @@
 (if *mcp-toolkit-context-document-reactor* (vlr-remove *mcp-toolkit-context-document-reactor*))
 (progn
   (setq *mcp-toolkit-context-document-reactor*
-    (vlr-docmanager-reactor nil '((:vlr-documentBecameCurrent . mcp-toolkit-context-event)))))
+    (vlr-docmanager-reactor nil '((:vlr-documentBecameCurrent . mcp-toolkit-document-event)))))
 (vl-catch-all-apply 'mcp-toolkit-context-write nil)
 (princ)

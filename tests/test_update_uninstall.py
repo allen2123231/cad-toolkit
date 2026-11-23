@@ -44,6 +44,7 @@ class UpdateTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):self.manager.update('payload',['rhino'])
         with patch('manager.processes',return_value=[{'pid':12}]):
             with self.assertRaises(RuntimeError):self.manager.update('payload',['inventor'])
+            with self.assertRaises(RuntimeError):self.manager.update('payload',['inventor'],live_autocad=True)
     def test_uninstall_refuses_any_open_cad_before_changes(self):
         state=copy.deepcopy(self.manager.state)
         with patch('manager.processes',return_value=[{'pid':12}]):

@@ -82,7 +82,7 @@ def plugin_files(destination, template, commands, version, env, history_root=Non
         if history_root:
             tools_dir = destination / "tools"
             tools_dir.mkdir(exist_ok=True)
-            for helper in ("relay.py", "history.py", "rhino_instances.py", "rhino_router.py", "window_store.py", "window_scan.py", "probe.py", "cad_launch.py","cad_products.py","autocad_channel.py","autocad_context.py"):
+            for helper in ("relay.py", "history.py", "rhino_instances.py", "rhino_router.py", "window_store.py", "window_scan.py", "probe.py", "cad_launch.py","cad_products.py","autocad_channel.py","autocad_context.py","autocad_access.py"):
                 shutil.copy2(Path(__file__).with_name(helper), tools_dir / helper)
             python = Path(cmd[0]).with_name("python.exe")
             cmd = [str(python), "-X", "utf8", str(tools_dir / "relay.py"), "--root", str(history_root), "--component", name, "--", *cmd]
@@ -330,13 +330,28 @@ class Manager:
                    if result['restart_required'] else '外掛已安裝。現在開啟 Rhino，文件準備好後會自動連線。')
         emit(message, step='configure_rhino', component='rhino', outcome='completed', result=result)
 
-    def update(self, payload, selected, setup=None):
+    def update(self, payload, selected, setup=None, live_autocad=False):
         """Upgrade the installed set while preserving user policy and root data."""
         installed = set(self.prepared())
         if set(selected) != installed or not installed:
             raise RuntimeError('更新必須沿用目前已安裝的 MCP 清單。')
-        if any(processes({'rhino':'Rhino.exe','autocad':'acad.exe','inventor':'Inventor.exe'}[c]) for c in selected):
-            raise RuntimeError('請先儲存並關閉 CAD 軟體，再重新按更新。')
+        opened={c:processes({'rhino':'Rhino.exe','autocad':'acad.exe','inventor':'Inventor.exe'}[c]) for c in selected}
+        if any(opened.values()):
+            if not live_autocad or any(v for c,v in opened.items() if c!='autocad'):
+                raise RuntimeError('請先儲存並關閉 CAD 軟體，再重新按更新。')
+            # Explicit development-only runtime maintenance. Never live-upgrade
+            # a CAD SDK, package, dependency lock or native Rhino binary.
+            manifest=read_json(Path(payload)/'bundle.json')
+            for previous in set(self.prepared().values()):
+                old=read_json(Path(previous)/'payload/bundle.json')
+                if any(old.get(k)!=manifest.get(k) for k in ('components','python','uv')):
+                    raise RuntimeError('此更新包含 MCP／原生套件變更，不能在 CAD 開啟時安裝。')
+                if any(sha256(Path(previous)/'payload/locks'/f'{c}.txt')!=sha256(Path(payload)/'locks'/f'{c}.txt') for c in selected):
+                    raise RuntimeError('此更新包含相依套件變更，請關閉 CAD。')
+            from autocad_channel import local_channel,identity
+            channel=local_channel(self.root);frame,context,error=channel.target();recovery=channel.state().get('recovery')
+            if error or not recovery or recovery.get('frame')!=identity(frame) or recovery.get('document',{}).get('id')!=(context or {}).get('document',{}).get('id'):
+                raise RuntimeError('保留原視窗更新需要唯一且閒置的 AutoCAD，以及對應目前圖面的中斷紀錄。')
         before = copy.deepcopy(self.state)
         policy = copy.deepcopy(self.config.load().get('plugins', {}).get('cad-toolkit@cad-toolkit-local', {}))
         backup = self.root / 'backups' / ('update-' + dt.datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
@@ -686,6 +701,7 @@ def main():
     parser.add_argument("--rhino-exe")
     parser.add_argument("--defer-plugin", action="store_true", help="Prepare components; register Plugin in a separate step")
     parser.add_argument("--active", action="store_true")
+    parser.add_argument("--live-autocad",action="store_true",help="Development: runtime-only maintenance of a fenced, idle AutoCAD instance")
     parser.add_argument("--cancel-file")
     args = parser.parse_args()
     selected = list(dict.fromkeys(args.components.split(",")))
@@ -701,7 +717,7 @@ def main():
             if args.action == "remove_component": manager.remove_component(selected)
             elif args.action == "install": manager.install(args.payload, selected, args.setup, args.defer_plugin)
             elif args.action == "setup": manager.setup(args.payload, selected, args.setup)
-            elif args.action == "update": manager.update(args.payload, selected, args.setup)
+            elif args.action == "update": manager.update(args.payload, selected, args.setup,args.live_autocad)
             elif args.action == "diagnose": manager.diagnose(selected, args.active)
             elif args.action == "activate": manager.activate(selected)
             else: getattr(manager, args.action)()

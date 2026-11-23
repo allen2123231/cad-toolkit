@@ -62,6 +62,7 @@ for line in sys.stdin:
             with Client(command,env={**os.environ,'PYTHONUTF8':'1'},timeout=10) as client:
                 init=client.initialize()
                 self.assertIn('Never automatically repeat',init['instructions'])
+                self.assertIn('NEVER bypass recovery',init['instructions'])
                 names={tool['name'] for tool in client.request('tools/list')['tools']}
                 self.assertTrue({'entity','get_recovery_state','open_application','get_application_state'}<=names)
                 for i in range(3):
@@ -74,6 +75,9 @@ for line in sys.stdin:
                 value=client.call('get_application_state',{'wait_seconds':0})
                 self.assertIn('state',value)
                 self.assertFalse(marker.exists(),'blocked batches must not reach the CAD service')
+                read=client.request('tools/call',{'name':'entity','arguments':{'operation':'count'}})
+                self.assertNotIn('isError',read)
+                self.assertTrue(marker.exists(),'audited reads must reach the managed service during recovery')
             self.assertTrue((root/'ipc/toolkit-recovery.json').exists(),'relay restart must preserve evidence')
             import history
             self.assertEqual(sum(r['outcome']=='blocked' for r in history.recent(root)),3)

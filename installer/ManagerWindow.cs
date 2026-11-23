@@ -99,7 +99,7 @@ public sealed class ManagerWindow : Window
     }
     public static string Label(JsonElement row)=>Get(row,"code") switch {
         "CHECK_FAILED"=>"檢查失敗",
-        "RECOVERY_REQUIRED"=>"中斷待確認",
+        "RECOVERY_REQUIRED"=>"修改暫停・待確認",
         "READY"=>"可以使用","NOT_INSTALLED"=>"需要安裝","CAD_NOT_RUNNING"=>"等待開啟","BACKGROUND_ONLY"=>"等待顯示視窗","CHECKING"=>"檢查中","TARGET_MISMATCH"=>"等待連線視窗","NO_DOCUMENT"=>"等待文件","NOT_ENABLED"=>"正在準備連線","SELECT_TARGET"=>"選擇視窗","VERSION_MISMATCH"=>"版本不符","BUSY"=>"指令進行中","STARTING"=>"啟動中","LICENSING_ERROR"=>"授權元件異常","CHECK_TIMEOUT"=>"等待回應",_=>"需要檢查連線"};
     public static Brush StatusColor(JsonElement row)=>Get(row,"code")=="READY"?Color("#2F9461"):Get(row,"code") is "CAD_NOT_RUNNING" or "NOT_INSTALLED"?Muted:Color("#B17A24");
     public static FrameworkElement Status(JsonElement row) => new Border{Background=Get(row,"code")=="READY"?Color("#EDF8F0"):Soft,CornerRadius=new CornerRadius(4),Padding=new Thickness(9,3,9,3),Child=Text(Label(row),11,color:StatusColor(row)),HorizontalAlignment=HorizontalAlignment.Right};

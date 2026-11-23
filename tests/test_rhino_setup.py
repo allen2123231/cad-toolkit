@@ -38,7 +38,7 @@ class RhinoSetupTests(Fixture):
 
     def test_uses_selected_rhino_and_keeps_paths_with_spaces_as_arguments(self):
         target, package, rhino = self.prepare()
-        with patch('rhino_setup.run', side_effect=lambda *args,**kwargs:self.installed(package)) as run:
+        with patch('rhino_setup.rhino_running',return_value=False),patch('rhino_setup.run', side_effect=lambda *args,**kwargs:self.installed(package)) as run:
             result = install_plugin(target, str(rhino))
         run.assert_called_once_with([rhino.with_name('Yak.exe'), 'install', package.resolve()], timeout=120)
         self.assertEqual(result['version'], '0.5.2')
@@ -69,7 +69,7 @@ class RhinoSetupTests(Fixture):
         manager = Manager(self.base / 'Toolkit')
         manager.rhino_exe = str(rhino)
         manager.state.update(candidate={'path': str(target), 'selected': ['rhino']}, active={'inventor': 'existing'})
-        with patch('rhino_setup.run', side_effect=lambda *args,**kwargs:self.installed(package)), patch('manager.processes', return_value=[{'pid': 1}]), contextlib.redirect_stdout(io.StringIO()):
+        with patch('rhino_setup.rhino_running',return_value=False),patch('rhino_setup.run', side_effect=lambda *args,**kwargs:self.installed(package)), patch('manager.processes', return_value=[{'pid': 1}]), contextlib.redirect_stdout(io.StringIO()):
             manager.configure_rhino()
         result = json.loads((target / 'rhino-plugin.json').read_text(encoding='utf-8'))
         self.assertTrue(result['restart_required'])

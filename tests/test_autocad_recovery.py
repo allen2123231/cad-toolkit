@@ -21,7 +21,7 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.frames = [self.frame]
         self.doc = dict(id='document-one', name='未命名.dwg', path='', busy=False)
         self.posts = []
-        self.channel = Channel(self.root, lambda: self.frames, lambda f: dict(document=dict(self.doc), guard_protocol=2))
+        self.channel = Channel(self.root, lambda: self.frames, lambda f: dict(document=dict(self.doc), guard_protocol=3))
 
     async def asyncTearDown(self):
         self.temp.cleanup()
@@ -80,7 +80,7 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unknown_legacy_mutation_is_never_auto_cleared(self):
         atomic(self.root/'ipc/pcad-pending.json', {'request_id':'legacy','command':'execute-lisp','params':{},'ts':50})
-        self.assertEqual((await self.channel.dispatch('ping', {}, self.post, timeout=.01))['code'], 'RECOVERY_REQUIRED')
+        self.assertEqual((await self.channel.dispatch('create-circle', {}, self.post, timeout=.01))['code'], 'RECOVERY_REQUIRED')
         self.assertEqual(self.posts, [])
 
     async def test_dead_readonly_ping_can_be_archived_without_replay(self):
@@ -145,7 +145,7 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.doc['busy']=True
         self.assertEqual((await self.channel.dispatch('create-circle',{},self.post,.01))['code'],'CAD_BUSY')
         self.doc['busy']=False
-        self.channel.context=lambda f:dict(guard_protocol=2,document=self.doc,modal=True)
+        self.channel.context=lambda f:dict(guard_protocol=3,document=self.doc,modal=True)
         self.assertEqual((await self.channel.dispatch('create-circle',{},self.post,.01))['code'],'CAD_BUSY')
         self.assertEqual(self.posts,[])
 
@@ -183,7 +183,7 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
 sys.path.insert(0,sys.argv[1])
 from autocad_channel import Channel
 frame=json.loads(sys.argv[3])
-channel=Channel(sys.argv[2],lambda:[frame],lambda f:dict(guard_protocol=2,document=dict(id="doc",busy=False)))
+channel=Channel(sys.argv[2],lambda:[frame],lambda f:dict(guard_protocol=3,document=dict(id="doc",busy=False)))
 asyncio.run(channel.dispatch("create-circle",{},lambda r:time.sleep(60),60))
 ''')
         child=subprocess.Popen([sys._base_executable,str(script),str(Path(__file__).resolve().parents[1]/'engine'),str(self.root),json.dumps(self.frame)],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)

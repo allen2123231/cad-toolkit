@@ -64,6 +64,32 @@ class DesktopChecks
         }
         string output=Path.GetFullPath(args.Length>0?args[0]:"test-results/desktop");Directory.CreateDirectory(output);var app=new Application{ShutdownMode=ShutdownMode.OnExplicitShutdown};
         app.Startup+=async(_,_)=>{try{
+            if(args.Contains("--repro-autocad-inplace")){
+                string waiting="""{"windows":[],"requests":[],"confirmations":[],"autocad_recovery":{"read_available":true,"write_available":false,"code":"RECOVERY_REQUIRED","can_confirm":false,"target_token":"original-window-token","recovery":{"request_id":"same-window-test","command":"execute-lisp","reason":"sender_or_notification_interrupted"},"current_document":{"id":"doc","name":"test.dwg","path":"C:/Test/test.dwg","units":4}}}""";
+                string ready=waiting.Replace("\"can_confirm\":false","\"can_confirm\":true,\"recovery_mode\":\"in_place\"");
+                string panel=waiting;int preparations=0;string[]? received=null;
+                using var inplaceHost=new RuntimeHost(Path.Combine(output,"root"),[],false,(name,arguments)=>{
+                    if(name=="prepare-autocad-recovery"){preparations++;received=arguments;panel=ready;}
+                    return Task.FromResult(JsonDocument.Parse(name=="windows"?panel:"{\"ok\":true}").RootElement.Clone());
+                });
+                inplaceHost.ApplyWindowSnapshot(JsonDocument.Parse(panel).RootElement);
+                var view=new AutoCadRecoveryWindow(inplaceHost);view.Show();view.UpdateLayout();
+                Assert(!Find<CheckBox>(view).Single().IsEnabled,"Passive idle status cannot enable confirmation");
+                Capture(view,Path.Combine(output,"before-check.png"),120);
+                var repair=Find<Button>(view).Single(b=>b.Content?.ToString()=="檢查並恢復連線");
+                repair.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));view.UpdateLayout();
+                Assert(preparations==1,"One repair click makes exactly one maintenance request");
+                Assert(received!.Contains("same-window-test")&&received!.Contains("original-window-token"),"Repair carries exact recovery and target identity");
+                var check=Find<CheckBox>(view).Single();var confirm=Find<Button>(view).Single(b=>b.Content?.ToString()=="確認圖面並解除暫停");
+                Assert(check.IsEnabled&&!confirm.IsEnabled,"Native in-place proof still requires user checkbox");
+                Assert(Find<TextBlock>(view).Any(t=>t.Text.Contains("原視窗已恢復連線")),"In-place success is distinct from reopened CAD");
+                check.IsChecked=true;Assert(confirm.IsEnabled,"User inspection enables confirmation in original window");
+                Capture(view,Path.Combine(output,"ready-to-confirm.png"),120);
+                inplaceHost.ApplyWindowSnapshot(JsonDocument.Parse(waiting.Replace("original-window-token","different-document-token")).RootElement);
+                Assert(!Find<CheckBox>(view).Single().IsEnabled,"Changed target revokes confirmation");
+                Assert(preparations==1,"Polling never automatically repeats recovery or drawing work");
+                view.Close();File.WriteAllText(Path.Combine(output,"report.json"),JsonSerializer.Serialize(new{passed=true,checks=count}));Console.WriteLine($"AutoCAD in-place recovery UI: {count} checks passed");app.Shutdown();return;
+            }
             if(args.Contains("--repro-autocad-recovery")){
                 string panel="""{"windows":[],"requests":[],"confirmations":[],"autocad_recovery":{"recovery":{"request_id":"native-interruption-test","command":"execute-lisp"},"can_confirm":false,"target_token":"new-document-token","current_document":null}}""";
                 string? action=null;string[]? received=null;
@@ -74,10 +100,14 @@ class DesktopChecks
                 Assert(!confirm.IsEnabled,"Closed CAD must not be confirmable");
                 Assert(!Find<CheckBox>(view).Single().IsEnabled,"Closed CAD checkbox disabled");
                 Capture(view,Path.Combine(output,"cad-closed.png"),144);
-                panel="""{"windows":[],"requests":[],"confirmations":[],"autocad_recovery":{"recovery":{"request_id":"native-interruption-test","command":"execute-lisp","closed_observed":true},"can_confirm":true,"target_token":"new-document-token","current_document":{"id":"fresh","name":"recovery-test.dwg","path":"C:/Test/recovery-test.dwg","units":4}}}""";
+                panel="""{"windows":[],"requests":[],"confirmations":[],"autocad_recovery":{"read_available":true,"write_available":false,"recovery":{"request_id":"native-interruption-test","command":"execute-lisp","closed_observed":true,"reason":"sender_or_notification_interrupted","error":"test notification failure"},"can_confirm":true,"target_token":"new-document-token","current_document":{"id":"fresh","name":"recovery-test.dwg","path":"C:/Test/recovery-test.dwg","units":4}}}""";
                 recoveryHost.ApplyWindowSnapshot(JsonDocument.Parse(panel).RootElement);view.UpdateLayout();
                 confirm=Find<Button>(view).Single(b=>b.Content?.ToString()=="確認圖面並解除暫停");var check=Find<CheckBox>(view).Single();
                 Assert(check.IsEnabled&&!confirm.IsEnabled,"Reopened CAD still needs human checkbox");
+                Assert(Find<TextBlock>(view).Any(t=>t.Text.Contains("可使用 MCP 查圖")&&t.Text.Contains("修改：已暫停")),"Read availability is distinct from write permission");
+                var technical=Find<Expander>(view).Single();technical.IsExpanded=true;view.UpdateLayout();
+                Assert(Find<TextBlock>(view).Any(t=>t.Text.Contains("test notification failure")),"Original notification error is available in details");
+                technical.IsExpanded=false;view.UpdateLayout();
                 check.IsChecked=true;Assert(confirm.IsEnabled,"Inspection enables confirmation");
                 recoveryHost.ApplyWindowSnapshot(JsonDocument.Parse(panel).RootElement);
                 Assert(ReferenceEquals(check,Find<CheckBox>(view).Single())&&check.IsChecked==true,"Identical poll preserves inspection selection");
