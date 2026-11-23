@@ -5,10 +5,11 @@ from pathlib import Path
 import zipfile
 import subprocess
 import csv
+import json
 import datetime as dt
 import uuid
 
-from common import read_json, run, sha256, within
+from common import read_json, run, sha256, within, atomic_json
 
 
 class RhinoInstallError(RuntimeError):
@@ -75,10 +76,17 @@ def install_plugin(target, rhino_exe=None):
     installed=within(base,version)
     with zipfile.ZipFile(package) as archive:
         expected={f.filename:hashlib.sha256(archive.read(f)).hexdigest() for f in archive.infolist() if not f.is_dir()}
+        marker='net8.0/toolkit-integration.json'
+        managed=marker in expected
+        if managed:
+            integration=json.loads(archive.read(marker))
+            if integration.get('schema')!=1 or integration.get('mode')!='mcp-toolkit':raise ValueError('Toolkit 管理模式標記無效。')
+            if any(Path(name).name.casefold()=='rhinomcptray.exe' for name in expected):raise ValueError('Toolkit 管理套件不應包含額外系統匣程式。')
     if not expected:raise ValueError('Rhino 外掛安裝包是空的。')
     for name in expected:within(installed,name)
-    if verified_install(installed,expected):
-        return {'version':version,'method':'yak','already_installed':True,'output':'已安裝相同且通過驗證的完整套件。'}
+    clean_tray=not managed or not any(installed.rglob('RhinoMCPTray.exe'))
+    if verified_install(installed,expected) and clean_tray:
+        return {'version':version,'method':'yak','already_installed':True,'toolkit_managed':managed,'output':'已安裝相同且通過驗證的完整套件。'}
     if rhino_running():raise RuntimeError('請先儲存工作並關閉 Rhino，再安裝或替換 RhinoMCP 外掛。')
     yak=find_yak(rhino_exe)
     backup=Path(os.environ.get('LOCALAPPDATA',str(Path.home())))/'McpToolkitBackups'/('rhino-replace-'+dt.datetime.now().strftime('%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:8])
@@ -92,6 +100,11 @@ def install_plugin(target, rhino_exe=None):
     if backup.resolve().anchor.lower()!=base.resolve().anchor.lower():backup=base.resolve().parent.parent.parent/'McpToolkitBackups'/backup.name
     moved=[];started=False
     try:
+        if managed:
+            from rhino_tray import retire
+            if rhino_running():raise RuntimeError('請先儲存並關閉 Rhino，再移除舊系統匣程式。')
+            retired=retire(base,old)
+        else:retired=[]
         for source in old:
             target=within(backup,'previous/'+source.name);target.parent.mkdir(parents=True,exist_ok=True)
             source=source.resolve();source.rename(target);moved.append((source,target))
@@ -110,4 +123,9 @@ def install_plugin(target, rhino_exe=None):
         if isinstance(error,OSError) or str(error).startswith('指令失敗'):
             raise RhinoInstallError('RhinoMCP 安裝未完成，原外掛已保留。請儲存並關閉 Rhino 後重試；仍失敗時可展開詳細資料。',f'{error}\nBackup: {backup}') from error
         raise
-    return {'version':version,'method':'yak','output':output.strip(),'backup':str(backup) if moved else None}
+    return {'version':version,'method':'yak','output':output.strip(),'backup':str(backup) if moved else None,'toolkit_managed':managed,'retired_trays':retired}
+
+
+def write_manager_locator(root):
+    path=Path(os.environ['LOCALAPPDATA'])/'RhinoMCP/toolkit-manager.json'
+    atomic_json(path,dict(schema=1,root=str(Path(root).resolve())))

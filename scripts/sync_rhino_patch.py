@@ -9,7 +9,8 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 FILES = ["plugin/ToolkitIdentity.cs", "plugin/RhinoMCPPlugin.cs", "plugin/InstanceStatusFile.cs",
          "plugin/RhinoMCPServer.cs", "plugin/Functions/DescribeCapabilities.cs", "plugin/WindowTitleTag.cs",
-         "plugin/rhinomcp.csproj", "plugin/manifest.yml", "server/pyproject.toml", "server/src/rhinomcp/server.py"]
+         "plugin/rhinomcp.csproj", "plugin/manifest.yml", "server/pyproject.toml", "server/src/rhinomcp/server.py",
+         "plugin/ToolkitIntegration.cs", "plugin/StatusTray.cs", "plugin/Commands/MCPWindowCommand.cs", "plugin/toolkit-integration.json"]
 
 
 def main():

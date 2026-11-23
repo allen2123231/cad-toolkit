@@ -12,6 +12,14 @@
 
 預定流程：功能分支修改 → 自動與原生驗證 → 使用者本機安裝測試 → 使用者確認 → 合併 `main` → 發布新版本。尚未取得確認時，保留在測試分支，不以測試通過或沒有回覆代替使用者確認。2026-11-23 使用者已確認原視窗恢復可用，授權合併與發布本次修復。
 
+## Rhino 單一系統匣測試分支
+
+`fix/rhino-single-tray` 由已公開 0.6.2-beta.1 後續 main 建立；Toolkit 本機版本 0.6.3-dev.1，原生與 Python RhinoMCP 同步為 Toolkit 管理版 0.5.4。已完成本機安裝與原生驗證，詳見 [Rhino 單一系統匣驗證](validation-rhino-single-tray.md)。只推送測試分支，不合併 main、不建立 Release 或版本標籤；使用者確認後才發布。
+
+重建測試：`python scripts/build_payload.py --dotnet <dotnet>`；管理外掛建置固定帶入 `ToolkitManagedBuild=true`，不能用僅重包 payload 的方式省略原生重建。修改 Rhino 原生程式時，由 pinned commit 的工作副本透過 `scripts/sync_rhino_patch.py` 更新 patch 與校驗值。
+
+`dotnet run --project tests/rhino-tray/RhinoTrayChecks.csproj -c Release -p:RhinoPatchSource=<patched source>` 驗證與外掛共用的模式／啟動程式。`tests/native_rhino_single_tray.py` 是需明確執行的實機驗收工具，會開啟兩個新 Rhino，拒絕使用既有視窗，並只處理自己建立的測試物件。
+
 ## 程式結構
 
 本機 `0.6.1-dev.1` 在相同測試分支加入 AutoCAD 唯讀與修改恢復隔離；實作與本機驗證見 [唯讀與中斷恢復驗證](validation-access-recovery.md)。dev 安裝檔僅供本機使用，沒有對應公開 Release；發布前需使用者確認並另行決定公開版本號。

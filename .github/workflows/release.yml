@@ -52,8 +52,11 @@ jobs:
         shell: pwsh
         run: |
           .build/payload/uv.exe venv --python .build/payload/runtime/python.exe .build/guard-check-env
-          .build/payload/uv.exe pip install --python .build/guard-check-env/Scripts/python.exe --no-index --find-links .build/payload/wheels/rhino rhinomcp==0.5.3
+          $rhinoSpec = (Get-Content sources.json | ConvertFrom-Json).components.rhino
+          .build/payload/uv.exe pip install --python .build/guard-check-env/Scripts/python.exe --no-index --find-links .build/payload/wheels/rhino "rhinomcp==$($rhinoSpec.package_version)"
           .build/guard-check-env/Scripts/python.exe -m unittest discover -s tests -p rhino_server_guard_checks.py -v
+          $rhinoSource = (Resolve-Path ".build/patched/rhino/$($rhinoSpec.patch_sha256)").Path
+          dotnet run --project tests/rhino-tray/RhinoTrayChecks.csproj -c Release "-p:RhinoPatchSource=$rhinoSource"
       - uses: actions/upload-artifact@v4
         with:
           name: cad-toolkit-windows

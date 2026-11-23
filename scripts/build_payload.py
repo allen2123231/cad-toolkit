@@ -112,7 +112,7 @@ def main():
             if tomllib.loads((project / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"] != asset["version"]:
                 raise ValueError("Rhino Python and plugin versions must match")
             if spec.get("build_plugin"):
-                run([args.dotnet, "build", source / "plugin/rhinomcp.csproj", "-c", "Release", "--nologo"], timeout=300)
+                run([args.dotnet, "build", source / "plugin/rhinomcp.csproj", "-c", "Release", "--nologo", "-p:ToolkitManagedBuild=true"], timeout=300)
                 native = build / "native" / spec["patch_sha256"]
                 (native / "net8.0").mkdir(parents=True, exist_ok=True)
                 shutil.copytree(source / "plugin/bin/Release/net8.0", native / "net8.0", dirs_exist_ok=True)

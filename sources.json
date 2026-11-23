@@ -1,5 +1,5 @@
 {
-  "version": "0.6.2-beta.1",
+  "version": "0.6.4-beta.1",
   "python": "3.12.11",
   "uv": "0.8.17",
   "components": {
@@ -26,11 +26,11 @@
       "commit": "6ad258efaa49086c1a7747506564802e84f8d0d7",
       "subdir": "server",
       "package": "rhinomcp",
-      "package_version": "0.5.3",
+      "package_version": "0.5.4",
       "entrypoint": "rhinomcp.exe",
       "process": "Rhino.exe",
       "patch": "patches/rhino-window-binding.patch",
-      "patch_sha256": "be5b48f48c2cbc60ea2632bd81256bcaca353bd8acc8d6133c0d34ae972acb78",
+      "patch_sha256": "78ff58c36114e9e2a31d4669078fe1c3d33aa0e0d31ad4c37ef368e0f8bf5661",
       "build_plugin": true
     }
   }

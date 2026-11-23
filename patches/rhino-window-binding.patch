@@ -2,7 +2,7 @@ diff --git a/plugin/ToolkitIdentity.cs b/plugin/ToolkitIdentity.cs
 new file mode 100644
 --- /dev/null
 +++ b/plugin/ToolkitIdentity.cs
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,63 @@
 +using System;
 +using System.IO;
 +using Newtonsoft.Json.Linq;
@@ -36,6 +36,7 @@ new file mode 100644
 +        uint current = doc?.RuntimeSerialNumber ?? 0;
 +        if (current != serial) { serial = current; epoch++; }
 +        return new JObject {
++            ["toolkit_managed"] = ToolkitIntegration.IsManaged,
 +            ["guard_protocol"] = 1, ["instance_id"] = InstanceId,
 +            ["hwnd"] = RhinoApp.MainWindowHandle().ToInt64(),
 +            ["document_serial"] = serial, ["document_epoch"] = epoch,
@@ -167,17 +168,33 @@ diff --git a/plugin/rhinomcp.csproj b/plugin/rhinomcp.csproj
    <PropertyGroup>
      <!-- Specifies information for Assembly and Yak -->
 -    <Version>0.5.2</Version>
-+    <Version>0.5.3</Version>
++    <Version>0.5.4</Version>
      <Title>rhinomcp</Title>
      <Company>Jingcheng Chen</Company>
      <Description>Rhino integration through the Model Context Protocol</Description>
+@@ -38,7 +38,14 @@
+   <!-- Build the Windows tray app that lists every Rhino running a server
+        (started by mcpstart / mcpwindow) and ship it next to the .rhp. It also
+        builds on macOS and Linux, so a Yak package made there includes it. -->
+-  <Target Name="BuildStatusTray" AfterTargets="Build" Condition="'$(TargetFramework)' != ''">
++  <ItemGroup Condition="'$(ToolkitManagedBuild)' == 'true'">
++    <None Update="toolkit-integration.json" CopyToOutputDirectory="Always" />
++  </ItemGroup>
++  <Target Name="RemoveOtherIntegrationArtifacts" AfterTargets="Build" Condition="'$(TargetFramework)' != ''">
++    <Delete Files="$(TargetDir)RhinoMCPTray.exe;$(TargetDir)RhinoMCPTray.exe.config" Condition="'$(ToolkitManagedBuild)' == 'true'" />
++    <Delete Files="$(TargetDir)toolkit-integration.json" Condition="'$(ToolkitManagedBuild)' != 'true'" />
++  </Target>
++  <Target Name="BuildStatusTray" AfterTargets="Build" Condition="'$(TargetFramework)' != '' And '$(ToolkitManagedBuild)' != 'true'">
+     <!-- Restore in its own evaluation first: dotnet build only restores this project. -->
+     <MSBuild Projects="../tray/RhinoMCPTray.csproj" Targets="Restore"
+              Properties="Configuration=$(Configuration);MSBuildRestoreSessionId=$([System.Guid]::NewGuid())"
 diff --git a/plugin/manifest.yml b/plugin/manifest.yml
 --- a/plugin/manifest.yml
 +++ b/plugin/manifest.yml
 @@ -1,5 +1,5 @@
  name: rhinomcp
 -version: 0.5.2
-+version: 0.5.3
++version: 0.5.4
  authors:
    - Jingcheng Chen
  description: Rhino integration through the Model Context Protocol
@@ -188,7 +205,7 @@ diff --git a/server/pyproject.toml b/server/pyproject.toml
  [project]
  name = "rhinomcp"
 -version = "0.5.2"
-+version = "0.5.3"
++version = "0.5.4"
  description = "Rhino integration through the Model Context Protocol"
  readme = "README.md"
  requires-python = ">=3.10"
@@ -274,3 +291,84 @@ diff --git a/server/src/rhinomcp/server.py b/server/src/rhinomcp/server.py
  
  
  @asynccontextmanager
+diff --git a/plugin/ToolkitIntegration.cs b/plugin/ToolkitIntegration.cs
+new file mode 100644
+--- /dev/null
++++ b/plugin/ToolkitIntegration.cs
+@@ -0,0 +1,43 @@
++using System;
++using System.Diagnostics;
++using System.IO;
++using System.Text.Json;
++
++namespace RhinoMCPPlugin;
++
++// This immutable marker ships only in Toolkit-managed packages, independently
++// of how Rhino starts or whether the manager is currently running.
++static class ToolkitIntegration
++{
++    internal static bool IsManaged => IsManagedAt(Path.GetDirectoryName(typeof(ToolkitIntegration).Assembly.Location));
++    internal static bool IsManagedAt(string directory)
++    {
++        try {
++            using var data = JsonDocument.Parse(File.ReadAllText(Path.Combine(directory, "toolkit-integration.json")));
++            return data.RootElement.GetProperty("schema").GetInt32() == 1 && data.RootElement.GetProperty("mode").GetString() == "mcp-toolkit";
++        } catch (Exception) { return false; }
++    }
++    internal static ProcessStartInfo ManagerStartInfo(string locator)
++    {
++        try {
++            using var data = JsonDocument.Parse(File.ReadAllText(locator));
++            if (data.RootElement.GetProperty("schema").GetInt32() != 1) return null;
++            string root = data.RootElement.GetProperty("root").GetString();
++            if (string.IsNullOrWhiteSpace(root) || !Path.IsPathFullyQualified(root)) return null;
++            root = Path.GetFullPath(root);
++            string exe = Path.Combine(root, "McpToolkit.exe");
++            if (!File.Exists(exe) || !File.Exists(Path.Combine(root, "state.json"))) return null;
++            var start = new ProcessStartInfo(exe) { UseShellExecute = false, WorkingDirectory = root };
++            start.ArgumentList.Add("--root=" + root);start.ArgumentList.Add("--page=mcps");
++            return start;
++        } catch (Exception) { return null; }
++    }
++    internal static bool OpenManager()
++    {
++        try {
++            var start = ManagerStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RhinoMCP", "toolkit-manager.json"));
++            if (start == null) return false;
++            Process.Start(start)?.Dispose();return true;
++        } catch (Exception) { return false; }
++    }
++}
+diff --git a/plugin/StatusTray.cs b/plugin/StatusTray.cs
+--- a/plugin/StatusTray.cs
++++ b/plugin/StatusTray.cs
+@@ -19,6 +19,7 @@
+         /// <returns>false on macOS, or when the exe is missing or cannot start.</returns>
+         public static bool Launch(bool showWindow)
+         {
++            if (ToolkitIntegration.IsManaged) return !showWindow || ToolkitIntegration.OpenManager();
+             if (!OperatingSystem.IsWindows() || !File.Exists(ExePath)) return false;
+             try
+             {
+diff --git a/plugin/Commands/MCPWindowCommand.cs b/plugin/Commands/MCPWindowCommand.cs
+--- a/plugin/Commands/MCPWindowCommand.cs
++++ b/plugin/Commands/MCPWindowCommand.cs
+@@ -20,6 +20,12 @@
+ 
+         protected override Result RunCommand(RhinoDoc doc, RunMode mode)
+         {
++            if (ToolkitIntegration.IsManaged)
++            {
++                if (ToolkitIntegration.OpenManager()) return Result.Success;
++                RhinoApp.WriteLine("請開啟 MCP Toolkit，在「MCP 管理」查看 Rhino；連線服務仍正常執行。");
++                return Result.Nothing;
++            }
+             // Show the tray window that lists every running Rhino.
+             if (StatusTray.Launch(showWindow: true))
+                 return Result.Success;
+diff --git a/plugin/toolkit-integration.json b/plugin/toolkit-integration.json
+new file mode 100644
+--- /dev/null
++++ b/plugin/toolkit-integration.json
+@@ -0,0 +1 @@
++{"schema":1,"mode":"mcp-toolkit"}
