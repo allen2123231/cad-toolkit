@@ -1,4 +1,4 @@
-# MCP Toolkit 0.6.1-beta.2 — AutoCAD 通訊與原視窗恢復修正
+# MCP Toolkit 0.6.2-beta.1 — AutoCAD 通訊與原視窗恢復修正
 
 本版為未簽章 Beta 測試版。Windows Smart App Control／SmartScreen 可能阻擋安裝或載入；本版不宣稱通過 SAC 相容性驗收，也不要求關閉 Windows 保護。後續版本仍維持既有簽章發布門檻。
 
