@@ -9,7 +9,7 @@ public static class Program {
         string? expected=args.FirstOrDefault(a=>a.StartsWith("--expected-version="));
         if(expected!=null&&new ToolkitService(root).Version!=expected[19..]){MessageBox.Show("下載的安裝程式版本不符，已保留目前版本。","MCP Toolkit");return;}
         using var single=new Mutex(true,installer?@"Local\McpToolkit.installer":@"Local\McpToolkit."+id,out bool first);
-        if(!first){if(!args.Contains("--background"))try{using var existing=EventWaitHandle.OpenExisting(signal);existing.Set();}catch(WaitHandleCannotBeOpenedException){}return;}
+        if(!first){if(!args.Contains("--background"))try{using var existing=EventWaitHandle.OpenExisting(!installer&&args.Contains("--page=mcps")?@"Local\McpToolkit.activate.mcps."+id:signal);existing.Set();}catch(WaitHandleCannotBeOpenedException){try{using var fallback=EventWaitHandle.OpenExisting(signal);fallback.Set();}catch(WaitHandleCannotBeOpenedException){}}return;}
         using var toolkit=new ToolkitApplication(app,args,root,signal,installer);
         app.Run();
     }

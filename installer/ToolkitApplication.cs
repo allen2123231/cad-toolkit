@@ -14,6 +14,8 @@ public sealed class ToolkitApplication : IDisposable
     readonly System.Windows.Forms.NotifyIcon tray;
     readonly EventWaitHandle activate;
     readonly RegisteredWaitHandle waiter;
+    readonly EventWaitHandle? manageActivate;
+    readonly RegisteredWaitHandle? manageWaiter;
     ManagerWindow? manager;
     TrayPanel? popup;
     InstallWindow? wizard;
@@ -27,6 +29,8 @@ public sealed class ToolkitApplication : IDisposable
         this.app=app;this.args=args;this.installer=installer;host=new RuntimeHost(root,args,start:!installer);app.ShutdownMode=ShutdownMode.OnExplicitShutdown;
         activate=new EventWaitHandle(false,EventResetMode.AutoReset,signal);
         waiter=ThreadPool.RegisterWaitForSingleObject(activate,(_,_)=>app.Dispatcher.BeginInvoke(()=>{if(installer)ShowSetup(null,null);else ShowManager("overview");}),null,Timeout.Infinite,false);
+        if(!installer){manageActivate=new EventWaitHandle(false,EventResetMode.AutoReset,@"Local\McpToolkit.activate.mcps."+Identity(root));
+            manageWaiter=ThreadPool.RegisterWaitForSingleObject(manageActivate,(_,_)=>app.Dispatcher.BeginInvoke(()=>ShowManager("mcps")),null,Timeout.Infinite,false);}
         tray=new System.Windows.Forms.NotifyIcon{Text="MCP Toolkit · 正在檢查",Icon=ToolkitVisuals.TrayIcon(false),Visible=!installer};
         var menu=new System.Windows.Forms.ContextMenuStrip();menu.Items.Add("MCP 狀態",null,(_,_)=>TogglePopup());menu.Items.Add("MCP 管理",null,(_,_)=>ShowManager("mcps"));menu.Items.Add("完整管理",null,(_,_)=>ShowManager("overview"));menu.Items.Add("設定與更新",null,(_,_)=>ShowManager("settings"));menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());menu.Items.Add("結束 MCP Toolkit",null,(_,_)=>Exit());tray.ContextMenuStrip=menu;
         tray.MouseClick+=(_,e)=>{if(e.Button==System.Windows.Forms.MouseButtons.Left)TogglePopup();};tray.DoubleClick+=(_,_)=>ShowManager("overview");
@@ -46,7 +50,7 @@ public sealed class ToolkitApplication : IDisposable
         if(args.Contains("--uninstall")){var removal=new UninstallWindow(root);removal.Closed+=(_,_)=>Exit();removal.Show();}
         else if(installer||args.Any(a=>a=="--setup"||a=="--update"||a.StartsWith("--components=")))ShowSetup(null,null);
         else if(!args.Contains("--background")){
-            if(File.Exists(Path.Combine(root,"state.json")))ShowManager("overview");else ShowSetup(null,0);
+            if(File.Exists(Path.Combine(root,"state.json")))ShowManager(args.Contains("--page=mcps")?"mcps":"overview");else ShowSetup(null,0);
         }
         if(!installer){_=host.Refresh();_=host.RefreshWindows();if(File.Exists(Path.Combine(root,"state.json")))app.Dispatcher.BeginInvoke(()=>host.Updates.Start());}
     }
@@ -70,7 +74,7 @@ public sealed class ToolkitApplication : IDisposable
         };wizard.Show();wizard.Activate();
     }
     async void Exit(){if(wizard!=null){var closing=wizard;closing.Close();if(closing.IsVisible)return;}if(!installer)try{await host.Run("clear-window-titles");}catch(Exception){}exiting=true;manager?.Close();popup?.Close();picker?.Close();recovery?.Close();app.Shutdown();}
-    public void Dispose(){exiting=true;waiter.Unregister(null);activate.Dispose();tray.Visible=false;var icon=tray.Icon;tray.Dispose();icon?.Dispose();host.Dispose();}
+    public void Dispose(){exiting=true;waiter.Unregister(null);activate.Dispose();manageWaiter?.Unregister(null);manageActivate?.Dispose();tray.Visible=false;var icon=tray.Icon;tray.Dispose();icon?.Dispose();host.Dispose();}
     public static string Root(string[] args)=>InstallLocation.Resolve(args);
     public static string Identity(string root)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(root.ToUpperInvariant())))[..20];
 }

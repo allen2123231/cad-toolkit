@@ -318,6 +318,9 @@ class Manager:
         self.checkpoint()
         emit('正在安裝 Rhino 自動連線外掛，完成前請勿關閉。', step='configure_rhino', component='rhino', cancellable=False)
         result = install_plugin(target, getattr(self, 'rhino_exe', None))
+        if result.get('toolkit_managed'):
+            from rhino_setup import write_manager_locator
+            write_manager_locator(self.root)
         opened=processes('Rhino.exe')
         restart=bool(opened) and not result.get('already_installed',False)
         if opened and result.get('already_installed'):
