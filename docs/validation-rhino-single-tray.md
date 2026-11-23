@@ -40,3 +40,22 @@
 舊原生套件備份位於 `%LOCALAPPDATA%/McpToolkitBackups/rhino-replace-20261123-100247-1d84ec12`，Toolkit 設定及 EXE 另備份在安裝根目錄的 `backups/rhino-single-tray-*`。舊 Tray 在替換時已自行退出，因此該次 retired_trays 為空；清理範圍另有測試，未誤稱實際強制結束了舊程序。
 
 只替換／啟用 Rhino。AutoCAD 與 Inventor 的 active 路徑與安裝前相同。Codex 現有對話不會熱替換已啟動的 MCP 服務，後續使用請重新開啟 Codex／新對話載入測試 Plugin。
+
+## Beta 公開發布驗證（2026-11-23）
+
+使用者完成本機試用並確認可用後，將 `fix/rhino-single-tray` 合併至 `main`，發布標籤 `v0.6.4-beta.1` 指向合併提交 `28fe8f4f26799f9bd18b5d860b78fbd5c74c724b`。版本刻意高於本機 `0.6.3-dev.1`，避免測試機收不到公開更新。
+
+公開版本：https://github.com/allen2123231/cad-toolkit/releases/tag/v0.6.4-beta.1
+
+本版簽章稽核仍有未簽章／未受信任項目；先完成建置與六個草稿附件，再取得使用者僅針對 `0.6.4-beta.1` 的明確未簽章 Beta 公開例外。既有工作流程簽章門檻未被移除或放寬；版本說明保留 Smart App Control／SmartScreen 可能阻擋的提示。
+
+發布前重跑：175 項 Python、32 項桌面、28 項更新、8 項共用 C# 管理模式及 4 項 Rhino 服務守衛全部通過；3059 個封裝檔案通過 manifest 核對。發布包中的 Rhino 原生外掛與使用者已測試的本機外掛位元組相同，管理標記存在且不含 RhinoMCPTray.exe。證據為 `test-results/064beta1-*.txt`、`test-results/064beta1-package.json`、`test-results/064beta1-rhino-package.json`。
+
+公開後使用匿名下載核對安裝程式及 payload 的大小與 SHA-256：
+
+| 項目 | 位元組 | SHA-256 |
+| --- | ---: | --- |
+| McpToolkitSetup.exe | 72136128 | `54086dd983a86486ff12938d845cf0a64037e802c335640769ba450db991baef` |
+| cad-toolkit-payload.zip | 138827475 | `96610acd56b961c64110f1ddc231b32c47a292624e890a22bc94476bb16da54b` |
+
+使用真正的 ToolkitService.CheckUpdate 連到公開 GitHub，僅替換測試用目前版本資訊：`0.6.2-beta.1`、`0.6.3-dev.1` 在接收 Beta 時都找到 `0.6.4-beta.1`；關閉 Beta 時都不收到此測試版。沒有執行更新安裝或變更使用者設定。證據：`test-results/064beta1-public-feed.json`、`test-results/064beta1-public-downloads.json`、`test-results/064beta1-published.json`。
