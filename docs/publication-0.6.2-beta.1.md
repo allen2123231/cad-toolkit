@@ -20,6 +20,7 @@
 
 以實際 `ToolkitService.CheckUpdate` 存取公開 GitHub API 與 manifest，僅替換測試客戶端的目前版本 metadata：0.6.1-beta.1 與 0.6.1-dev.2 均偵測到 0.6.2-beta.1；關閉 Beta 接收時不會收到此版。沒有套用更新、修改使用者設定或關閉 CAD。
 
-本機證據：`test-results/062beta1-published.json`、`062beta1-public-downloads.json`、`062beta1-public-feed.json`、`062beta1-package.json`、`062beta1-python-final.txt`（完整通過記錄另為 `062beta1-python.txt`）、`dist/signature-audit.json`。原生及本機恢復測試範圍見 [原視窗恢復驗證](validation-inplace-recovery.md)；LT 2027 尚未完成 LT 實機驗證。
+本機證據：`test-results/062beta1-published.json`、`062beta1-public-downloads.json`、`062beta1-public-feed.json`、`062beta1-package.json`、`062beta1-python.txt`、`dist/signature-audit.json`。原生及本機恢復測試範圍見 [原視窗恢復驗證](validation-inplace-recovery.md)；LT 2027 尚未完成 LT 實機驗證。
 
 本次沒有覆蓋任何已公開版本的附件，沒有把本機開發安裝自動切換為公開版本。
+
