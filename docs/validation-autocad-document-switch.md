@@ -24,4 +24,12 @@
 
 證據：`test-results/native-document-switch-final-20261123/report.json`、同目錄 `cross-document-probe.json`、`test-results/recovery-document-switch-ui/`、`test-results/document-switch-python-tests-final.log`。
 
-範圍限制：原生測試使用完整 AutoCAD 2026；沒有以此宣稱通過 AutoCAD LT 2027 實機驗收。尚未公開發布；使用者本機安裝與操作確認另行記錄。
+範圍限制：原生測試使用完整 AutoCAD 2026；沒有以此宣稱通過 AutoCAD LT 2027 實機驗收。尚未公開發布。
+
+## 本機安裝驗證（2026-11-23）
+
+使用者儲存並關閉 AutoCAD 後，以正式更新流程安裝 `0.6.5-dev.1`。已核對執行檔雜湊、ApplicationPlugins 外掛雜湊、三套元件的啟用路徑、上一版還原資訊與更新偏好設定。安裝前備份位於 `%LOCALAPPDATA%/McpToolkit/backups/update-20261123-193920-814246`。
+
+使用新安裝 Plugin 的 MCP stdio 入口呼叫 `open_application`，AutoCAD 2026 自動載入外掛後回報 `backend=file_ipc`、`ready=true`、`code=READY`、`recovery=null`。唯讀讀回新開的 `Drawing1.dwg`：0 個圖元、圖層 0、DBMOD 0。沒有打載入指令、開啟或修改工作圖面。主視窗出現早於外掛完成載入，因此驗證會等待橋接 ready，而非僅以視窗存在判定成功。
+
+已安裝驗證證據：`test-results/local-document-switch-verification.json`、`test-results/local-document-switch-install.log`。本機安裝及連線驗證完成；跨圖面恢復的使用者操作驗收仍待確認。分支未合併、未公開到自動更新。
