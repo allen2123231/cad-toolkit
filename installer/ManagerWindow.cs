@@ -210,6 +210,11 @@ public sealed class ManagerWindow : Window
     void Settings() {
         Header("設定與更新","管理 Toolkit 主程式更新、通知與啟動偏好。MCP 元件請到「MCP 管理」。");
         ToolkitUpdates();
+        var roadmap=Card("Roadmap｜開發進度","查看收集箱、已規劃、進行中與已完成項目，也可以提出新功能或回報使用上的問題。");
+        var openRoadmap=Button("開啟 Roadmap",()=>{try{Process.Start(new ProcessStartInfo("https://mcp-toolkit-roadmap.metaltechcompositive.chatgpt.site/"){UseShellExecute=true});}catch(Exception ex){Error(ex);}});
+        openRoadmap.ToolTip="在瀏覽器開啟 MCP Toolkit 工作看板；瀏覽與提出任務不需要登入。";
+        System.Windows.Automation.AutomationProperties.SetAutomationId(openRoadmap,"open-roadmap");
+        roadmap.Children.Add(openRoadmap);
         var updates=Card("更新與通知","啟動時及每天背景檢查；同一版本只通知一次，未更新時面板保留提示。");
         foreach(var item in new[]{("自動檢查更新",host.Updates.Preferences.Automatic,0),("顯示 Windows 更新通知",host.Updates.Preferences.Notifications,1),("接收 Beta 測試版更新",host.Updates.Preferences.Beta,2)}){
             var option=new CheckBox{Content=item.Item1,IsChecked=item.Item2,Margin=new Thickness(0,8,0,0)};
