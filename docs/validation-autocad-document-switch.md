@@ -33,3 +33,11 @@
 使用新安裝 Plugin 的 MCP stdio 入口呼叫 `open_application`，AutoCAD 2026 自動載入外掛後回報 `backend=file_ipc`、`ready=true`、`code=READY`、`recovery=null`。唯讀讀回新開的 `Drawing1.dwg`：0 個圖元、圖層 0、DBMOD 0。沒有打載入指令、開啟或修改工作圖面。主視窗出現早於外掛完成載入，因此驗證會等待橋接 ready，而非僅以視窗存在判定成功。
 
 已安裝驗證證據：`test-results/local-document-switch-verification.json`、`test-results/local-document-switch-install.log`。本機安裝及連線驗證完成；跨圖面恢復的使用者操作驗收仍待確認。分支未合併、未公開到自動更新。
+
+## 0.6.5-beta.1 發布檢查（2026-11-26）
+
+維護者已授權合併與發布本修復，並明確允許僅此版以未簽章 Beta 公開；既有工作流程的簽章門檻不變。發布範圍只包含跨圖面中斷恢復與設定頁 Roadmap 入口，不包含室內設計或群組隔離測試分支。
+
+發布候選重新通過 182 項 Python、32 項桌面介面、12 項恢復面板及 28 項更新／清理檢查。37 項 AutoCAD 原生整合結果沿用上述既有證據；此次檢查沒有關閉使用者 CAD 或修改工作圖面。完整 AutoCAD 2026 的結果仍不代表 LT 2027 實機驗收。
+
+候選 payload 逐檔核對 SHA-256，並驗證打包後的橋接保護、逐圖面載入版本、Plugin 版本與獨立產生的 relay 可匯入。發布附件另外產生安裝程式／payload 雜湊及簽章盤點，公開後需再以匿名下載核對。當時的本機測試紀錄與待確認敘述保留作為歷史紀錄。

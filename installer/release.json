@@ -1,8 +1,8 @@
 {
-  "version": "0.6.5-dev.1",
+  "version": "0.6.5-beta.1",
   "payload": {
-    "url": "https://github.com/allen2123231/cad-toolkit/releases/download/v0.6.5-dev.1/cad-toolkit-payload.zip",
-    "sha256": "20db8c8dae355ab4dd5c34f4cc98a05e42b7bc0d8ec7f157df327022f66b2eb6",
-    "size": 138831223
+    "url": "https://github.com/allen2123231/cad-toolkit/releases/download/v0.6.5-beta.1/cad-toolkit-payload.zip",
+    "sha256": "19cb8960fe2ef5cef80dd90ead3df283ad710b893b1222cb43c49d4b3b9bd1bb",
+    "size": 138834010
   }
 }
